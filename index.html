@@ -7,6 +7,9 @@
 <title>Kompass</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='42' fill='none' stroke='%23607d6e' stroke-width='4'/%3E%3Cpath d='M50 18 L56 50 L50 82 L44 50 Z' fill='%23607d6e'/%3E%3C/svg%3E" />
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
   :root {
     --bg: #f7f5f1;
@@ -465,6 +468,148 @@
     font-size: 14px; font-weight: 500;
   }
 
+  /* ===== Drawer badge ===== */
+  .drawer__badge {
+    display: inline-block; min-width: 18px; padding: 0 6px;
+    background: var(--accent); color: white;
+    border-radius: 9px; font-size: 11px; font-weight: 600;
+    text-align: center; vertical-align: middle; margin-left: 4px;
+  }
+  .drawer__badge:empty { display: none; }
+
+  /* ===== Hub cards (Reporting) ===== */
+  .hub-card {
+    display: block; width: 100%; text-align: left;
+    padding: 20px 18px;
+  }
+  .hub-card__title {
+    font-size: 17px; font-weight: 600; margin-bottom: 4px; color: var(--text);
+  }
+  .hub-card__desc {
+    font-size: 13px; color: var(--text-dim);
+  }
+  .hub-card:active { background: var(--surface-2); }
+
+  /* ===== Pills / range selector ===== */
+  .pill-row {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    margin-top: 4px;
+  }
+  .pill {
+    padding: 7px 14px; border: 1px solid var(--border);
+    background: var(--surface); border-radius: 18px;
+    font-size: 13px; color: var(--text-dim); cursor: pointer;
+    transition: all 0.15s;
+  }
+  .pill.active { background: var(--accent); color: white; border-color: var(--accent); }
+  .pill:active:not(.active) { background: var(--surface-2); }
+
+  /* ===== Data table ===== */
+  .data-table {
+    width: 100%; border-collapse: collapse; font-size: 13px;
+    margin-top: 8px;
+  }
+  .data-table th, .data-table td {
+    padding: 8px 10px; text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+  .data-table th {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
+    color: var(--text-muted); font-weight: 600;
+    background: var(--surface-2);
+  }
+  .data-table tr.row-clickable { cursor: pointer; }
+  .data-table tr.row-clickable:hover td { background: var(--surface-2); }
+  .data-table td.out-of-range {
+    color: var(--bad); font-weight: 600;
+    background: var(--bad-soft);
+  }
+  .data-table td.in-range {
+    color: var(--accent-text);
+  }
+  .data-table tr.expanded-row td {
+    background: var(--surface-2); border-bottom: none;
+    padding: 12px;
+  }
+  .data-table tr.expanded-row .expansion-detail {
+    font-size: 12px; color: var(--text-dim); margin-bottom: 8px;
+  }
+  .data-table tr.expanded-row .expansion-detail.bad { color: var(--bad); }
+
+  /* ===== Stats grid ===== */
+  .stats-grid {
+    display: grid; grid-template-columns: repeat(2, 1fr);
+    gap: 8px 16px; margin: 14px 0;
+  }
+  .stats-grid .stat {
+    display: flex; justify-content: space-between;
+    padding: 6px 0;
+    border-bottom: 1px dashed var(--border);
+  }
+  .stats-grid .stat__label { color: var(--text-dim); font-size: 13px; }
+  .stats-grid .stat__value { font-weight: 600; font-size: 14px; }
+  @media (min-width: 600px) {
+    .stats-grid { grid-template-columns: repeat(3, 1fr); }
+  }
+
+  /* ===== Chart canvas wrap ===== */
+  .chart-wrap {
+    position: relative; width: 100%; height: 280px;
+    margin: 8px 0;
+  }
+  @media (min-width: 768px) {
+    .chart-wrap { height: 360px; }
+  }
+
+  /* ===== Action row ===== */
+  .action-row {
+    display: flex; flex-wrap: wrap; gap: 8px;
+    margin-top: 16px;
+  }
+  .action-row .btn { flex: 1 1 auto; min-width: 140px; }
+
+  /* ===== Metric picker ===== */
+  .metric-picker { display: flex; flex-direction: column; gap: 6px; }
+  .metric-picker__item {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 12px; background: var(--surface-2);
+    border-radius: var(--radius-sm);
+  }
+  .metric-picker__item button.remove {
+    color: var(--bad); font-size: 16px;
+    width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;
+  }
+
+  /* ===== Saved report item ===== */
+  .saved-item {
+    background: var(--surface-2); border-radius: var(--radius-sm);
+    padding: 12px 14px; margin-bottom: 8px;
+  }
+  .saved-item__title { font-size: 14px; font-weight: 600; margin-bottom: 2px; }
+  .saved-item__meta { font-size: 12px; color: var(--text-dim); margin-bottom: 8px; }
+  .saved-item__actions { display: flex; gap: 6px; flex-wrap: wrap; }
+  .saved-item__actions .btn { padding: 5px 10px; font-size: 12px; }
+
+  /* ===== Export folder item ===== */
+  .export-item {
+    background: var(--surface-2); border-radius: var(--radius-sm);
+    padding: 10px 12px; margin-bottom: 8px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .export-item__drag { color: var(--text-muted); cursor: grab; user-select: none; font-size: 18px; }
+  .export-item__body { flex: 1; }
+  .export-item__title { font-size: 14px; font-weight: 500; }
+  .export-item__meta { font-size: 11px; color: var(--text-dim); }
+  .export-item__remove { color: var(--bad); font-size: 18px; padding: 4px 8px; }
+  .export-item__note-input { width: 100%; margin-top: 6px; font-size: 12px; padding: 6px; }
+
+  /* ===== Header click hint (desktop) ===== */
+  .header__title { cursor: default; }
+  @media (min-width: 768px) {
+    .header__title { cursor: pointer; }
+    .header__title:hover { color: var(--accent); }
+  }
+
   /* ===== Settings ===== */
   .settings-row {
     padding: 14px 0; border-bottom: 1px solid var(--border);
@@ -577,6 +722,7 @@
     <button class="drawer__item" data-page="today">Today's Log</button>
     <button class="drawer__item" data-page="past">Past Logs</button>
     <button class="drawer__item" data-page="reports">Reporting</button>
+    <button class="drawer__item" data-page="export">Export Folder <span class="drawer__badge" id="exportBadge"></span></button>
     <button class="drawer__item" data-page="patterns">Pattern Recommendations</button>
     <button class="drawer__item" data-page="settings">Settings</button>
   </div>
@@ -613,11 +759,17 @@ let state = {
     medDosage: '',
     medUnit: 'mcg',
     goals: [],            // { id, text, metric, target }
+    normalRanges: {},     // metricId -> { min, max } (configured later in Settings)
   },
   cycle: { active: false, startedOn: null },  // tracked separately in settings
   metric: { week: 'sleep', month: 'sleep' },
+  savedTemplates: [],   // { id, name, config }
+  savedSnapshots: [],   // { id, name, savedAt, config, frozenData }
+  savedListFilters: [], // { id, name, config }
+  exportFolder: [],     // { id, kind, title, ref... }
   syncQueue: [],
   supabase: null,
+  _scratch: null,       // ephemeral builder state (not synced)
 };
 
 const METRICS = [
@@ -684,10 +836,18 @@ function loadLocal() {
     state.settings = { ...state.settings, ...(data.settings || {}) };
     state.cycle = { ...state.cycle, ...(data.cycle || {}) };
     state.metric = { ...state.metric, ...(data.metric || {}) };
+    state.savedTemplates = data.savedTemplates || [];
+    state.savedSnapshots = data.savedSnapshots || [];
+    state.savedListFilters = data.savedListFilters || [];
+    state.exportFolder = data.exportFolder || [];
   } catch (e) { console.warn('Local load failed', e); }
 }
 function saveLocal() {
-  const data = { logs: state.logs, settings: state.settings, cycle: state.cycle, metric: state.metric };
+  const data = {
+    logs: state.logs, settings: state.settings, cycle: state.cycle, metric: state.metric,
+    savedTemplates: state.savedTemplates, savedSnapshots: state.savedSnapshots,
+    savedListFilters: state.savedListFilters, exportFolder: state.exportFolder,
+  };
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
 }
 
@@ -717,6 +877,10 @@ async function pullFromCloud() {
         state.settings = { ...state.settings, ...(cloud.settings || {}) };
         state.cycle = { ...state.cycle, ...(cloud.cycle || {}) };
         state.metric = { ...state.metric, ...(cloud.metric || {}) };
+        state.savedTemplates = cloud.savedTemplates || [];
+        state.savedSnapshots = cloud.savedSnapshots || [];
+        state.savedListFilters = cloud.savedListFilters || [];
+        state.exportFolder = cloud.exportFolder || [];
         saveLocal();
       } else {
         await pushToCloud();
@@ -742,7 +906,11 @@ function queuePush() {
 async function pushToCloud() {
   if (!state.supabase) return;
   try {
-    const payload = { logs: state.logs, settings: state.settings, cycle: state.cycle, metric: state.metric };
+    const payload = {
+      logs: state.logs, settings: state.settings, cycle: state.cycle, metric: state.metric,
+      savedTemplates: state.savedTemplates, savedSnapshots: state.savedSnapshots,
+      savedListFilters: state.savedListFilters, exportFolder: state.exportFolder,
+    };
     const { error } = await state.supabase.from('kompass_state').upsert({
       id: 'main',
       payload,
@@ -891,9 +1059,11 @@ function go(page) {
   if (page === 'home') renderHome(main);
   else if (page === 'today') renderToday(main, state.today);
   else if (page === 'past') renderPast(main);
-  else if (page === 'reports') renderPlaceholder(main, 'Reporting', 'Coming next — once we design what reports you want, this is where they live.');
+  else if (page === 'reports') renderReports(main);
+  else if (page === 'export') renderExportFolder(main);
   else if (page === 'patterns') renderPlaceholder(main, 'Pattern Recommendations', 'AI-ish insights coming later. This will surface "your flares correlate with X" once you have enough data.');
   else if (page === 'settings') renderSettings(main);
+  updateExportBadge();
   closeDrawer();
   window.scrollTo(0, 0);
 }
@@ -1835,6 +2005,19 @@ function openPastLog(date) {
     };
     ctrl.appendChild(archive);
   }
+  // Add to Export Folder
+  const expBtn = document.createElement('button');
+  expBtn.className = 'btn btn--secondary'; expBtn.style.flex = '1'; expBtn.textContent = '+ Export Folder';
+  expBtn.onclick = () => {
+    state.exportFolder.push({
+      id: 'ef-' + Date.now(), kind: 'pastlog',
+      title: `Full log: ${prettyDate(date)}`,
+      date, note: '',
+    });
+    queuePush(); updateExportBadge();
+    toast(`Added to Export Folder (${state.exportFolder.length})`);
+  };
+  ctrl.appendChild(expBtn);
   main.appendChild(ctrl);
 }
 
@@ -1971,6 +2154,1302 @@ function renderSettings(root) {
   lock.onclick = () => { sessionStorage.removeItem('kompass_unlocked'); location.reload(); };
   lockCard.appendChild(lock);
   root.appendChild(lockCard);
+}
+
+// =============== REPORTING ===============
+
+const RANGE_PRESETS = [
+  { id: 'today', label: 'Today', days: 1 },
+  { id: '7d', label: '7d', days: 7 },
+  { id: '30d', label: '30d', days: 30 },
+  { id: '90d', label: '90d', days: 90 },
+  { id: '1yr', label: '1yr', days: 365 },
+  { id: 'all', label: 'All', days: null },
+  { id: 'custom', label: 'Custom', days: null },
+];
+
+function rangeDates(rangeId, customFrom, customTo) {
+  const today = new Date(); today.setHours(0,0,0,0);
+  if (rangeId === 'custom' && customFrom && customTo) {
+    return { from: parseYmd(customFrom), to: parseYmd(customTo) };
+  }
+  if (rangeId === 'all') {
+    const dates = Object.keys(state.logs).sort();
+    if (dates.length === 0) return { from: today, to: today };
+    return { from: parseYmd(dates[0]), to: today };
+  }
+  const preset = RANGE_PRESETS.find(p => p.id === rangeId) || RANGE_PRESETS[1];
+  const from = new Date(today); from.setDate(from.getDate() - (preset.days - 1));
+  return { from, to: today };
+}
+
+function getSeries(metricId, from, to) {
+  // Returns array of { date: 'YYYY-MM-DD', value: number|null }
+  const out = [];
+  const d = new Date(from);
+  while (d <= to) {
+    const key = ymd(d);
+    const log = state.logs[key];
+    const val = log && !log.archived && !log.deleted ? extractMetric(log, metricId) : null;
+    out.push({ date: key, value: val });
+    d.setDate(d.getDate() + 1);
+  }
+  return out;
+}
+
+function metricMeta(id) {
+  const m = METRICS.find(m => m.id === id);
+  return m || { id, label: id, chart: 'line' };
+}
+
+function isYNMetric(id) {
+  // metrics whose extract returns 0 or value (1 if happened) treated as on/off
+  return ['walk','caffeine','alcohol'].indexOf(id) === -1 && // these are counts but stored from y/n
+         ['washHair','proteinShake','collagen','workday','workout','k18','palpitations','tv','cbd'].indexOf(id) > -1;
+}
+
+function computeStats(series, metricId) {
+  const values = series.filter(p => p.value !== null && p.value !== undefined && !isNaN(p.value)).map(p => p.value);
+  const logged = series.filter(p => p.value !== null && p.value !== undefined && !isNaN(p.value)).length;
+  if (values.length === 0) {
+    return { avg: '—', median: '—', best: '—', worst: '—', bestDate: '', worstDate: '', inRange: '—', outOfRange: '—', logged: `0 / ${series.length} days` };
+  }
+  const avg = values.reduce((a,b)=>a+b,0) / values.length;
+  const sorted = [...values].sort((a,b)=>a-b);
+  const median = sorted.length % 2 ? sorted[(sorted.length-1)/2]
+    : (sorted[sorted.length/2-1] + sorted[sorted.length/2]) / 2;
+  // best = max for most things, but for stress/palpitations lower is "better"
+  // For now: best = max, worst = min (caller can interpret)
+  let bestVal = -Infinity, worstVal = Infinity, bestIdx = 0, worstIdx = 0;
+  series.forEach((p, i) => {
+    if (p.value === null || p.value === undefined || isNaN(p.value)) return;
+    if (p.value > bestVal) { bestVal = p.value; bestIdx = i; }
+    if (p.value < worstVal) { worstVal = p.value; worstIdx = i; }
+  });
+  // Range checking
+  const range = state.settings.normalRanges && state.settings.normalRanges[metricId];
+  let inR = '—', outR = '—';
+  if (range && (range.min !== '' || range.max !== '')) {
+    const mn = range.min !== '' ? Number(range.min) : -Infinity;
+    const mx = range.max !== '' ? Number(range.max) : Infinity;
+    let ic = 0, oc = 0;
+    values.forEach(v => { if (v >= mn && v <= mx) ic++; else oc++; });
+    inR = `${ic} / ${logged} days`;
+    outR = `${oc} / ${logged} days`;
+  }
+  const fmt = v => formatMetric(v, metricId);
+  return {
+    avg: fmt(avg), median: fmt(median),
+    best: fmt(bestVal), bestDate: shortDate(series[bestIdx].date),
+    worst: fmt(worstVal), worstDate: shortDate(series[worstIdx].date),
+    inRange: inR, outOfRange: outR,
+    logged: `${logged} / ${series.length} days`,
+  };
+}
+
+function isOutOfRange(value, metricId) {
+  if (value === null || value === undefined || isNaN(value)) return false;
+  const range = state.settings.normalRanges && state.settings.normalRanges[metricId];
+  if (!range || (range.min === '' && range.max === '')) return false;
+  const mn = range.min !== '' ? Number(range.min) : -Infinity;
+  const mx = range.max !== '' ? Number(range.max) : Infinity;
+  return value < mn || value > mx;
+}
+
+function updateExportBadge() {
+  const el = $('#exportBadge');
+  if (!el) return;
+  const count = state.exportFolder.length;
+  el.textContent = count > 0 ? String(count) : '';
+}
+
+// ============= REPORTING HUB =============
+function renderReports(root) {
+  const cards = [
+    { id: 'quickview', title: 'Quick View', desc: 'One metric across time scopes' },
+    { id: 'chartbuilder', title: 'Chart Builder', desc: 'Compare up to 3 metrics — customize, save, export' },
+    { id: 'listview', title: 'List View', desc: 'Logs by in-range / out-of-range' },
+    { id: 'savedreports', title: 'Saved Reports', desc: 'Templates + Snapshots you\'ve saved' },
+    { id: 'exportfolder', title: 'Export Folder', desc: 'Combine reports into one PDF for your doctor' },
+  ];
+  cards.forEach(c => {
+    const card = document.createElement('button');
+    card.className = 'card hub-card';
+    let count = '';
+    if (c.id === 'savedreports') {
+      const n = (state.savedTemplates.length + state.savedSnapshots.length);
+      if (n > 0) count = ` (${n})`;
+    }
+    if (c.id === 'exportfolder' && state.exportFolder.length > 0) {
+      count = ` (${state.exportFolder.length})`;
+    }
+    card.innerHTML = `<div class="hub-card__title">${c.title}${count}</div>
+                      <div class="hub-card__desc">${c.desc}</div>`;
+    card.onclick = () => openReportSubpage(c.id);
+    root.appendChild(card);
+  });
+}
+
+function openReportSubpage(id) {
+  const main = $('#main'); main.innerHTML = '';
+  if (id === 'quickview') { $('#pageTitle').textContent = 'Quick View'; renderQuickView(main); }
+  else if (id === 'chartbuilder') { $('#pageTitle').textContent = 'Chart Builder'; renderChartBuilder(main); }
+  else if (id === 'listview') { $('#pageTitle').textContent = 'List View'; renderListView(main); }
+  else if (id === 'savedreports') { $('#pageTitle').textContent = 'Saved Reports'; renderSavedReports(main); }
+  else if (id === 'exportfolder') { $('#pageTitle').textContent = 'Export Folder'; renderExportFolder(main); }
+  window.scrollTo(0, 0);
+}
+
+function backButton(toPage) {
+  const b = document.createElement('button');
+  b.className = 'btn btn--ghost btn--small';
+  b.textContent = toPage === 'reports' ? '← Back to Reporting' : '← Back';
+  b.style.marginBottom = '12px';
+  b.onclick = () => go(toPage || 'reports');
+  return b;
+}
+
+function rangePicker(currentRange, customFrom, customTo, onChange) {
+  const wrap = document.createElement('div');
+  const row = document.createElement('div'); row.className = 'pill-row';
+  RANGE_PRESETS.forEach(p => {
+    const b = document.createElement('button');
+    b.className = 'pill' + (currentRange === p.id ? ' active' : '');
+    b.textContent = p.label;
+    b.onclick = () => onChange(p.id);
+    row.appendChild(b);
+  });
+  wrap.appendChild(row);
+  if (currentRange === 'custom') {
+    const cust = document.createElement('div');
+    cust.style.cssText = 'display:flex; gap:8px; align-items:center; margin-top:10px; flex-wrap:wrap;';
+    cust.innerHTML = `<span style="font-size:13px; color:var(--text-dim);">From</span>`;
+    const from = document.createElement('input');
+    from.type = 'date'; from.className = 'time-input';
+    from.value = customFrom || ymd(new Date(Date.now() - 30*24*3600*1000));
+    cust.appendChild(from);
+    cust.appendChild(elFromHtml('<span style="font-size:13px; color:var(--text-dim);">To</span>'));
+    const to = document.createElement('input');
+    to.type = 'date'; to.className = 'time-input';
+    to.value = customTo || ymd(new Date());
+    cust.appendChild(to);
+    from.onchange = () => onChange('custom', from.value, to.value);
+    to.onchange = () => onChange('custom', from.value, to.value);
+    wrap.appendChild(cust);
+  }
+  return wrap;
+}
+
+// ============= QUICK VIEW =============
+function renderQuickView(main) {
+  if (!state._scratch || state._scratch.kind !== 'quick') {
+    state._scratch = { kind: 'quick', metric: 'sleep', range: '7d', customFrom: '', customTo: '' };
+  }
+  main.innerHTML = '';
+  main.appendChild(backButton('reports'));
+
+  const card = document.createElement('div'); card.className = 'card';
+  card.innerHTML = `<div class="card__title">Metric</div>`;
+  const sel = document.createElement('select'); sel.className = 'time-input'; sel.style.width = '100%';
+  METRICS.forEach(m => {
+    const o = document.createElement('option');
+    o.value = m.id; o.textContent = m.label;
+    if (m.id === state._scratch.metric) o.selected = true;
+    sel.appendChild(o);
+  });
+  sel.onchange = () => { state._scratch.metric = sel.value; renderQuickView(main); };
+  card.appendChild(sel);
+
+  const rLbl = document.createElement('div');
+  rLbl.innerHTML = `<div class="card__title" style="margin-top:14px;">Range</div>`;
+  card.appendChild(rLbl);
+  card.appendChild(rangePicker(state._scratch.range, state._scratch.customFrom, state._scratch.customTo, (r, f, t) => {
+    state._scratch.range = r;
+    if (r === 'custom') { state._scratch.customFrom = f || state._scratch.customFrom; state._scratch.customTo = t || state._scratch.customTo; }
+    renderQuickView(main);
+  }));
+  main.appendChild(card);
+
+  // Chart
+  const chartCard = document.createElement('div'); chartCard.className = 'card';
+  chartCard.innerHTML = `<div class="card__title">${metricMeta(state._scratch.metric).label}</div>`;
+  const chartWrap = document.createElement('div'); chartWrap.className = 'chart-wrap';
+  const canvas = document.createElement('canvas');
+  chartWrap.appendChild(canvas);
+  chartCard.appendChild(chartWrap);
+  main.appendChild(chartCard);
+
+  // Stats
+  const { from, to } = rangeDates(state._scratch.range, state._scratch.customFrom, state._scratch.customTo);
+  const series = getSeries(state._scratch.metric, from, to);
+  const stats = computeStats(series, state._scratch.metric);
+  const meta = metricMeta(state._scratch.metric);
+  const statsCard = document.createElement('div'); statsCard.className = 'card';
+  statsCard.innerHTML = `<div class="card__title">Stats</div>
+    <div class="stats-grid">
+      <div class="stat"><span class="stat__label">Average</span><span class="stat__value">${stats.avg}</span></div>
+      <div class="stat"><span class="stat__label">Median</span><span class="stat__value">${stats.median}</span></div>
+      <div class="stat"><span class="stat__label">Best</span><span class="stat__value">${stats.best}${stats.bestDate ? ' <span style="font-weight:400; color:var(--text-muted); font-size:11px;">(' + stats.bestDate + ')</span>' : ''}</span></div>
+      <div class="stat"><span class="stat__label">Worst</span><span class="stat__value">${stats.worst}${stats.worstDate ? ' <span style="font-weight:400; color:var(--text-muted); font-size:11px;">(' + stats.worstDate + ')</span>' : ''}</span></div>
+      <div class="stat"><span class="stat__label">In-range</span><span class="stat__value">${stats.inRange}</span></div>
+      <div class="stat"><span class="stat__label">Out-of-range</span><span class="stat__value">${stats.outOfRange}</span></div>
+      <div class="stat"><span class="stat__label">Logged</span><span class="stat__value">${stats.logged}</span></div>
+    </div>`;
+  main.appendChild(statsCard);
+
+  // Actions
+  const actions = document.createElement('div'); actions.className = 'action-row';
+  const dl = document.createElement('button'); dl.className = 'btn'; dl.textContent = 'Download PDF';
+  dl.onclick = () => downloadQuickViewPDF(state._scratch.metric, series, stats, state._scratch.range, from, to);
+  const exp = document.createElement('button'); exp.className = 'btn btn--secondary'; exp.textContent = '+ Add to Export Folder';
+  exp.onclick = () => {
+    state.exportFolder.push({
+      id: 'ef-' + Date.now(),
+      kind: 'quickview',
+      title: `${meta.label} (${state._scratch.range === 'custom' ? state._scratch.customFrom + '→' + state._scratch.customTo : state._scratch.range})`,
+      config: { ...state._scratch },
+      note: '',
+    });
+    queuePush(); updateExportBadge();
+    toast(`Added to Export Folder (${state.exportFolder.length})`);
+  };
+  const cb = document.createElement('button'); cb.className = 'btn btn--secondary'; cb.textContent = 'Open in Chart Builder →';
+  cb.onclick = () => {
+    state._scratch = {
+      kind: 'builder', title: meta.label,
+      metrics: [state._scratch.metric],
+      range: state._scratch.range, customFrom: state._scratch.customFrom, customTo: state._scratch.customTo,
+      chartType: meta.chart === 'bar' ? 'bar' : 'line',
+      advanced: { axisLabels: {}, annotations: [] },
+    };
+    openReportSubpage('chartbuilder');
+  };
+  actions.appendChild(dl); actions.appendChild(exp); actions.appendChild(cb);
+  main.appendChild(actions);
+
+  setTimeout(() => drawChartJS(canvas, [state._scratch.metric], series.length, [series], 'line'), 50);
+}
+
+// ============= CHART RENDERING =============
+let _activeCharts = [];
+function destroyCharts() {
+  _activeCharts.forEach(c => { try { c.destroy(); } catch(e){} });
+  _activeCharts = [];
+}
+
+function drawChartJS(canvas, metricIds, days, seriesList, chartType) {
+  destroyCharts();
+  const labels = seriesList[0].map(p => p.date.slice(5)); // MM-DD
+  const colors = ['#607d6e', '#b87291', '#c48b5f', '#7B9DA8'];
+  const datasets = [];
+  metricIds.forEach((mid, idx) => {
+    const meta = metricMeta(mid);
+    const series = seriesList[idx];
+    const ynMetric = isYNMetric(mid);
+    if (ynMetric && chartType !== 'bar') {
+      // Show as scatter on top axis or fill regions — for simplicity render as bar
+      datasets.push({
+        type: 'bar', label: meta.label, yAxisID: idx === 0 ? 'y' : 'y1',
+        data: series.map(p => p.value),
+        backgroundColor: colors[idx] + '44',
+        borderColor: colors[idx],
+        borderWidth: 1, barPercentage: 1.0, categoryPercentage: 1.0,
+      });
+    } else {
+      datasets.push({
+        type: chartType === 'bar' ? 'bar' : (chartType === 'scatter' ? 'scatter' : 'line'),
+        label: meta.label, yAxisID: idx === 0 ? 'y' : 'y1',
+        data: chartType === 'scatter' ? series.map((p, i) => ({ x: seriesList[0][i].value, y: p.value })) : series.map(p => p.value),
+        borderColor: colors[idx], backgroundColor: chartType === 'area' ? colors[idx] + '33' : colors[idx],
+        borderWidth: 2, pointRadius: 3, fill: chartType === 'area', tension: 0.25,
+      });
+    }
+  });
+  const scales = { y: { beginAtZero: false, grid: { color: '#e4dfd5' } } };
+  if (metricIds.length > 1) scales.y1 = { position: 'right', beginAtZero: false, grid: { drawOnChartArea: false } };
+  const chart = new Chart(canvas, {
+    type: datasets[0]?.type || 'line',
+    data: { labels, datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      animation: false,
+      plugins: { legend: { display: metricIds.length > 1, labels: { font: { size: 11 } } } },
+      scales,
+    },
+  });
+  _activeCharts.push(chart);
+  return chart;
+}
+
+// ============= CHART BUILDER =============
+function renderChartBuilder(main) {
+  if (!state._scratch || state._scratch.kind !== 'builder') {
+    state._scratch = {
+      kind: 'builder', title: '',
+      metrics: [], range: '30d', customFrom: '', customTo: '',
+      chartType: 'line',
+      advanced: { axisLabels: {}, annotations: [], showAdvanced: false, annotationMode: 'simple' },
+    };
+  }
+  const s = state._scratch;
+  main.innerHTML = '';
+  main.appendChild(backButton('reports'));
+
+  // Title
+  const tcard = document.createElement('div'); tcard.className = 'card';
+  tcard.innerHTML = `<div class="card__title">Chart Title</div>`;
+  const tin = document.createElement('input');
+  tin.className = 'text-input'; tin.type='text'; tin.placeholder='e.g. "My sleep vs. walks"';
+  tin.value = s.title || '';
+  tin.oninput = () => { s.title = tin.value; };
+  tcard.appendChild(tin);
+  main.appendChild(tcard);
+
+  // Metrics
+  const mcard = document.createElement('div'); mcard.className = 'card';
+  mcard.innerHTML = `<div class="card__title">Metrics (up to 3)</div>`;
+  const mlist = document.createElement('div'); mlist.className = 'metric-picker';
+  s.metrics.forEach((mid, i) => {
+    const item = document.createElement('div'); item.className = 'metric-picker__item';
+    item.innerHTML = `<span>${metricMeta(mid).label}</span>`;
+    const rm = document.createElement('button'); rm.className = 'remove'; rm.textContent = '✕';
+    rm.onclick = () => { s.metrics.splice(i, 1); renderChartBuilderSwap(main); };
+    item.appendChild(rm);
+    mlist.appendChild(item);
+  });
+  mcard.appendChild(mlist);
+  if (s.metrics.length < 3) {
+    const addRow = document.createElement('div'); addRow.style.marginTop = '8px';
+    const addSel = document.createElement('select'); addSel.className = 'time-input'; addSel.style.width = '100%';
+    addSel.innerHTML = `<option value="">+ Add metric...</option>` +
+      METRICS.filter(m => !s.metrics.includes(m.id)).map(m => `<option value="${m.id}">${m.label}</option>`).join('');
+    addSel.onchange = () => { if (addSel.value) { s.metrics.push(addSel.value); renderChartBuilderSwap(main); } };
+    addRow.appendChild(addSel);
+    mcard.appendChild(addRow);
+  }
+  main.appendChild(mcard);
+
+  // Range
+  const rcard = document.createElement('div'); rcard.className = 'card';
+  rcard.innerHTML = `<div class="card__title">Time Range</div>`;
+  rcard.appendChild(rangePicker(s.range, s.customFrom, s.customTo, (r, f, t) => {
+    s.range = r;
+    if (r === 'custom') { s.customFrom = f || s.customFrom; s.customTo = t || s.customTo; }
+    renderChartBuilderSwap(main);
+  }));
+  main.appendChild(rcard);
+
+  // Chart type
+  const ccard = document.createElement('div'); ccard.className = 'card';
+  ccard.innerHTML = `<div class="card__title">Chart Type</div>`;
+  const ctRow = document.createElement('div'); ctRow.className = 'pill-row';
+  ['line','bar','scatter','area'].forEach(t => {
+    const b = document.createElement('button');
+    b.className = 'pill' + (s.chartType === t ? ' active' : '');
+    b.textContent = t.charAt(0).toUpperCase() + t.slice(1);
+    b.onclick = () => { s.chartType = t; renderChartBuilderSwap(main); };
+    ctRow.appendChild(b);
+  });
+  ccard.appendChild(ctRow);
+  main.appendChild(ccard);
+
+  // Advanced
+  const acard = document.createElement('div'); acard.className = 'card';
+  acard.style.padding = '0';
+  const ahead = document.createElement('button');
+  ahead.className = 'section__head';
+  ahead.style.cssText = 'background: var(--surface); border-radius: var(--radius); padding: 16px 18px; width: 100%;';
+  ahead.innerHTML = `<span class="section__title">Advanced</span><span class="section__caret" style="transform: ${s.advanced.showAdvanced ? 'rotate(-135deg)' : 'rotate(45deg)'};"></span>`;
+  ahead.onclick = () => { s.advanced.showAdvanced = !s.advanced.showAdvanced; renderChartBuilderSwap(main); };
+  acard.appendChild(ahead);
+  if (s.advanced.showAdvanced) {
+    const abody = document.createElement('div');
+    abody.style.cssText = 'padding: 0 18px 18px;';
+    // Annotation mode
+    abody.innerHTML = `<div class="card__title" style="margin-top:14px;">Annotations</div>`;
+    const aRow = document.createElement('div'); aRow.className = 'pill-row';
+    ['simple','detailed'].forEach(m => {
+      const b = document.createElement('button');
+      b.className = 'pill' + (s.advanced.annotationMode === m ? ' active' : '');
+      b.textContent = m.charAt(0).toUpperCase() + m.slice(1);
+      b.onclick = () => { s.advanced.annotationMode = m; renderChartBuilderSwap(main); };
+      aRow.appendChild(b);
+    });
+    abody.appendChild(aRow);
+    // List existing annotations
+    (s.advanced.annotations || []).forEach((an, idx) => {
+      const it = document.createElement('div'); it.style.cssText='margin-top:10px; padding:8px; background:var(--surface-2); border-radius:var(--radius-sm); font-size:12px;';
+      it.innerHTML = `<strong>${an.date}:</strong> ${escapeHtml(an.text)}`;
+      const rm = document.createElement('button'); rm.className='btn btn--small btn--ghost'; rm.style.color='var(--bad)'; rm.textContent='Remove';
+      rm.onclick = () => { s.advanced.annotations.splice(idx,1); renderChartBuilderSwap(main); };
+      it.appendChild(rm);
+      abody.appendChild(it);
+    });
+    // Add annotation
+    const addBtn = document.createElement('button'); addBtn.className='btn btn--small btn--secondary'; addBtn.textContent='+ Add annotation'; addBtn.style.marginTop='10px';
+    addBtn.onclick = () => openAnnotationModal(s);
+    abody.appendChild(addBtn);
+    // Y-axis labels
+    if (s.metrics.length > 0) {
+      const yLbl = document.createElement('div'); yLbl.className='card__title'; yLbl.style.marginTop='18px'; yLbl.textContent = 'Custom Y-axis labels (optional)';
+      abody.appendChild(yLbl);
+      s.metrics.forEach((mid, i) => {
+        const row = document.createElement('div'); row.style.cssText='margin-top:8px;';
+        row.innerHTML = `<label style="font-size:12px; color:var(--text-dim); display:block; margin-bottom:4px;">${metricMeta(mid).label} (${i === 0 ? 'left' : 'right'} axis)</label>`;
+        const inp = document.createElement('input'); inp.className='text-input'; inp.placeholder=`auto: ${metricMeta(mid).label}`;
+        inp.value = (s.advanced.axisLabels && s.advanced.axisLabels[mid]) || '';
+        inp.oninput = () => { s.advanced.axisLabels = s.advanced.axisLabels || {}; s.advanced.axisLabels[mid] = inp.value; };
+        row.appendChild(inp);
+        abody.appendChild(row);
+      });
+    }
+    acard.appendChild(abody);
+  }
+  main.appendChild(acard);
+
+  // Preview
+  const pcard = document.createElement('div'); pcard.className = 'card';
+  pcard.innerHTML = `<div class="card__title">Preview</div>`;
+  const chartWrap = document.createElement('div'); chartWrap.className = 'chart-wrap';
+  const canvas = document.createElement('canvas');
+  chartWrap.appendChild(canvas);
+  pcard.appendChild(chartWrap);
+  main.appendChild(pcard);
+
+  // Actions
+  const actions = document.createElement('div'); actions.className = 'action-row';
+  const resetAll = document.createElement('button'); resetAll.className='btn btn--secondary'; resetAll.textContent='Reset all';
+  resetAll.onclick = () => { state._scratch = null; renderChartBuilderSwap(main); };
+  const resetM = document.createElement('button'); resetM.className='btn btn--secondary'; resetM.textContent='Choose new metrics';
+  resetM.onclick = () => { s.metrics = []; renderChartBuilderSwap(main); };
+  const saveBtn = document.createElement('button'); saveBtn.className='btn'; saveBtn.textContent='Save as ▼';
+  saveBtn.onclick = () => openSaveAsModal(s);
+  const dlBtn = document.createElement('button'); dlBtn.className='btn'; dlBtn.textContent='Download PDF';
+  dlBtn.onclick = () => downloadChartPDF(s);
+  const expBtn = document.createElement('button'); expBtn.className='btn btn--secondary'; expBtn.textContent='+ Add to Export Folder';
+  expBtn.onclick = () => {
+    state.exportFolder.push({
+      id: 'ef-' + Date.now(), kind: 'chart',
+      title: s.title || autoChartName(s), config: JSON.parse(JSON.stringify(s)),
+      note: '',
+    });
+    queuePush(); updateExportBadge();
+    toast(`Added to Export Folder (${state.exportFolder.length})`);
+  };
+  actions.appendChild(resetAll); actions.appendChild(resetM); actions.appendChild(saveBtn); actions.appendChild(dlBtn); actions.appendChild(expBtn);
+  main.appendChild(actions);
+
+  // Render preview
+  if (s.metrics.length > 0) {
+    const { from, to } = rangeDates(s.range, s.customFrom, s.customTo);
+    const seriesList = s.metrics.map(mid => getSeries(mid, from, to));
+    setTimeout(() => drawChartJS(canvas, s.metrics, seriesList[0].length, seriesList, s.chartType), 50);
+  } else {
+    chartWrap.innerHTML = `<div class="chart-empty" style="height:100%;">Pick metrics above to see a preview</div>`;
+  }
+}
+
+function renderChartBuilderSwap(main) { renderChartBuilder(main); }
+
+function autoChartName(s) {
+  const m = (s.metrics || []).map(id => metricMeta(id).label).join(' + ');
+  const r = s.range === 'custom' ? `${s.customFrom} → ${s.customTo}` : `last ${s.range}`;
+  return `${m || 'Untitled'} (${r})`;
+}
+
+function openSaveAsModal(s) {
+  modal({
+    title: 'Save as…',
+    body: `
+      <p style="margin:0 0 10px;">Choose save type:</p>
+      <p style="font-size:12px; color:var(--text-dim);"><strong>Template</strong> = config only (always pulls fresh data)<br/>
+      <strong>Snapshot</strong> = freezes current data so it never changes</p>
+      <label style="display:block; margin-top:14px; font-size:13px; color:var(--text-dim);">Name:</label>
+      <input type="text" id="saveAsName" class="text-input" value="${escapeHtml(s.title || autoChartName(s))}"/>
+    `,
+    actions: [
+      { label: 'Cancel' },
+      { label: 'Save Template', primary: true, onClick: () => saveTemplate(s, document.querySelector('#saveAsName').value) },
+      { label: 'Save Snapshot', primary: true, onClick: () => saveSnapshot(s, document.querySelector('#saveAsName').value) },
+    ],
+  });
+}
+
+function saveTemplate(s, name) {
+  state.savedTemplates.push({
+    id: 'tpl-' + Date.now(), name: name || autoChartName(s),
+    config: JSON.parse(JSON.stringify(s)),
+  });
+  queuePush(); toast('Template saved');
+}
+
+function saveSnapshot(s, name) {
+  const { from, to } = rangeDates(s.range, s.customFrom, s.customTo);
+  const frozen = {};
+  s.metrics.forEach(mid => { frozen[mid] = getSeries(mid, from, to); });
+  state.savedSnapshots.push({
+    id: 'snap-' + Date.now(), name: name || autoChartName(s),
+    savedAt: new Date().toISOString(),
+    config: JSON.parse(JSON.stringify(s)),
+    frozenData: frozen,
+  });
+  queuePush(); toast('Snapshot saved');
+}
+
+function openAnnotationModal(s) {
+  modal({
+    title: 'Add annotation',
+    body: `
+      <label style="display:block; font-size:13px; color:var(--text-dim);">Date:</label>
+      <input type="date" id="anDate" class="time-input" value="${ymd(new Date())}" style="width:100%; margin-bottom:10px;"/>
+      <label style="display:block; font-size:13px; color:var(--text-dim);">Text:</label>
+      <textarea id="anText" class="text-input" placeholder="e.g. started new med"></textarea>
+    `,
+    actions: [
+      { label: 'Cancel' },
+      { label: 'Add', primary: true, onClick: () => {
+        const dt = document.querySelector('#anDate').value;
+        const tx = document.querySelector('#anText').value;
+        if (!dt || !tx) return;
+        s.advanced.annotations = s.advanced.annotations || [];
+        s.advanced.annotations.push({ date: dt, text: tx });
+        renderChartBuilderSwap($('#main'));
+      }},
+    ],
+  });
+}
+
+// ============= LIST VIEW =============
+function renderListView(main) {
+  if (!state._scratch || state._scratch.kind !== 'list') {
+    state._scratch = {
+      kind: 'list', metrics: [], range: '7d', customFrom: '', customTo: '',
+      show: 'all', sort: 'newest',
+      customSelectedDates: null,
+      expanded: {},
+    };
+  }
+  const s = state._scratch;
+  main.innerHTML = '';
+  main.appendChild(backButton('reports'));
+
+  // Metrics
+  const mcard = document.createElement('div'); mcard.className = 'card';
+  mcard.innerHTML = `<div class="card__title">Metrics (unlimited)</div>`;
+  const mlist = document.createElement('div'); mlist.className = 'metric-picker';
+  s.metrics.forEach((mid, i) => {
+    const item = document.createElement('div'); item.className = 'metric-picker__item';
+    item.innerHTML = `<span>${metricMeta(mid).label}</span>`;
+    const rm = document.createElement('button'); rm.className='remove'; rm.textContent='✕';
+    rm.onclick = () => { s.metrics.splice(i,1); renderListViewSwap(main); };
+    item.appendChild(rm);
+    mlist.appendChild(item);
+  });
+  mcard.appendChild(mlist);
+  const addSel = document.createElement('select'); addSel.className = 'time-input'; addSel.style.cssText='margin-top:8px; width:100%;';
+  addSel.innerHTML = `<option value="">+ Add metric...</option>` +
+    METRICS.filter(m => !s.metrics.includes(m.id)).map(m => `<option value="${m.id}">${m.label}</option>`).join('');
+  addSel.onchange = () => { if (addSel.value) { s.metrics.push(addSel.value); renderListViewSwap(main); } };
+  mcard.appendChild(addSel);
+  main.appendChild(mcard);
+
+  // Range
+  const rcard = document.createElement('div'); rcard.className = 'card';
+  rcard.innerHTML = `<div class="card__title">Time Range</div>`;
+  rcard.appendChild(rangePicker(s.range, s.customFrom, s.customTo, (r, f, t) => {
+    s.range = r;
+    if (r === 'custom') { s.customFrom = f || s.customFrom; s.customTo = t || s.customTo; }
+    renderListViewSwap(main);
+  }));
+  main.appendChild(rcard);
+
+  // Show toggle
+  const showCard = document.createElement('div'); showCard.className = 'card';
+  showCard.innerHTML = `<div class="card__title">Show</div>`;
+  const showRow = document.createElement('div'); showRow.className = 'pill-row';
+  ['all','in-range','out-of-range','custom'].forEach(opt => {
+    const b = document.createElement('button');
+    b.className = 'pill' + (s.show === opt ? ' active' : '');
+    b.textContent = opt === 'all' ? 'All' : opt === 'in-range' ? 'In-range' : opt === 'out-of-range' ? 'Out-of-range' : 'Custom…';
+    b.onclick = () => {
+      if (opt === 'custom') {
+        openCustomFilterModal(s, () => renderListViewSwap(main));
+      } else {
+        s.show = opt;
+        s.customSelectedDates = null;
+        renderListViewSwap(main);
+      }
+    };
+    showRow.appendChild(b);
+  });
+  showCard.appendChild(showRow);
+  main.appendChild(showCard);
+
+  // Sort
+  const sortCard = document.createElement('div'); sortCard.className = 'card';
+  sortCard.innerHTML = `<div class="card__title">Sort By</div>`;
+  const sortSel = document.createElement('select'); sortSel.className = 'time-input';
+  [['newest','Newest first'], ['oldest','Oldest first'], ['most-oor','Most out-of-range'], ['by-metric','By first metric value']].forEach(([v,l]) => {
+    const o = document.createElement('option'); o.value = v; o.textContent = l;
+    if (s.sort === v) o.selected = true; sortSel.appendChild(o);
+  });
+  sortSel.onchange = () => { s.sort = sortSel.value; renderListViewSwap(main); };
+  sortCard.appendChild(sortSel);
+  main.appendChild(sortCard);
+
+  // Build results
+  const { from, to } = rangeDates(s.range, s.customFrom, s.customTo);
+  const allRows = buildListRows(s.metrics, from, to);
+  let filtered = allRows;
+  if (s.show === 'in-range') filtered = filtered.filter(r => r.hasOutOfRange === false && r.anyLogged);
+  else if (s.show === 'out-of-range') filtered = filtered.filter(r => r.hasOutOfRange);
+  else if (s.show === 'custom' && s.customSelectedDates) filtered = filtered.filter(r => s.customSelectedDates.includes(r.date));
+  // Sort
+  if (s.sort === 'newest') filtered.sort((a,b) => b.date.localeCompare(a.date));
+  else if (s.sort === 'oldest') filtered.sort((a,b) => a.date.localeCompare(b.date));
+  else if (s.sort === 'most-oor') filtered.sort((a,b) => b.outOfRangeCount - a.outOfRangeCount);
+  else if (s.sort === 'by-metric' && s.metrics.length) {
+    filtered.sort((a,b) => (b.values[s.metrics[0]] ?? -Infinity) - (a.values[s.metrics[0]] ?? -Infinity));
+  }
+
+  const resCard = document.createElement('div'); resCard.className = 'card';
+  resCard.innerHTML = `<div class="card__title">Results (${filtered.length})</div>`;
+  if (s.metrics.length === 0) {
+    resCard.innerHTML += `<p style="color:var(--text-muted); font-size:13px;">Pick at least one metric to see results.</p>`;
+  } else if (filtered.length === 0) {
+    resCard.innerHTML += `<p style="color:var(--text-muted); font-size:13px;">No matching entries.</p>`;
+  } else {
+    const tbl = document.createElement('table'); tbl.className = 'data-table';
+    let head = '<thead><tr><th>Date</th>';
+    s.metrics.forEach(mid => { head += `<th>${metricMeta(mid).label}</th>`; });
+    head += '</tr></thead>';
+    tbl.innerHTML = head;
+    const tbody = document.createElement('tbody');
+    filtered.forEach(row => {
+      const tr = document.createElement('tr'); tr.className = 'row-clickable';
+      let cells = `<td>${shortDate(row.date)}</td>`;
+      s.metrics.forEach(mid => {
+        const v = row.values[mid];
+        const ynM = isYNMetric(mid);
+        const display = v === null || v === undefined ? '—' : (ynM ? (v ? 'Yes' : 'No') : formatMetric(v, mid));
+        const oor = isOutOfRange(v, mid);
+        const cls = oor ? 'out-of-range' : (v !== null && v !== undefined ? 'in-range' : '');
+        cells += `<td class="${cls}">${display}</td>`;
+      });
+      tr.innerHTML = cells;
+      tr.onclick = () => { s.expanded[row.date] = !s.expanded[row.date]; renderListViewSwap(main); };
+      tbody.appendChild(tr);
+      if (s.expanded[row.date]) {
+        const exp = document.createElement('tr'); exp.className = 'expanded-row';
+        const td = document.createElement('td'); td.colSpan = s.metrics.length + 1;
+        let html = '';
+        s.metrics.forEach(mid => {
+          const v = row.values[mid];
+          const range = state.settings.normalRanges[mid];
+          if (isOutOfRange(v, mid) && range) {
+            html += `<div class="expansion-detail bad">${metricMeta(mid).label} outside normal range (${range.min || 'any'} – ${range.max || 'any'})</div>`;
+          } else if (v !== null && v !== undefined && range) {
+            html += `<div class="expansion-detail">${metricMeta(mid).label} within normal range</div>`;
+          }
+        });
+        const openBtn = document.createElement('button');
+        openBtn.className = 'btn btn--small btn--secondary'; openBtn.textContent = 'Open full log →';
+        openBtn.onclick = (e) => { e.stopPropagation(); openLogModal(row.date); };
+        td.innerHTML = html;
+        td.appendChild(openBtn);
+        exp.appendChild(td); tbody.appendChild(exp);
+      }
+    });
+    tbl.appendChild(tbody);
+    resCard.appendChild(tbl);
+  }
+  main.appendChild(resCard);
+
+  // Actions
+  const actions = document.createElement('div'); actions.className = 'action-row';
+  const dlBtn = document.createElement('button'); dlBtn.className = 'btn'; dlBtn.textContent = 'Download PDF';
+  dlBtn.onclick = () => downloadListPDF(s, filtered);
+  const expBtn = document.createElement('button'); expBtn.className = 'btn btn--secondary'; expBtn.textContent = '+ Add to Export Folder';
+  expBtn.onclick = () => {
+    state.exportFolder.push({
+      id: 'ef-' + Date.now(), kind: 'list',
+      title: `List: ${s.metrics.map(m=>metricMeta(m).label).join(', ')} (${s.show}, ${s.range})`,
+      config: JSON.parse(JSON.stringify(s)),
+      note: '',
+    });
+    queuePush(); updateExportBadge();
+    toast(`Added to Export Folder (${state.exportFolder.length})`);
+  };
+  const saveBtn = document.createElement('button'); saveBtn.className = 'btn btn--secondary'; saveBtn.textContent = 'Save filter';
+  saveBtn.onclick = () => {
+    modal({
+      title: 'Save this filter',
+      body: `<label style="font-size:13px;">Name:</label>
+        <input type="text" id="filtName" class="text-input" value="${escapeHtml(`${s.metrics.map(m=>metricMeta(m).label).join(' + ')} · ${s.show}`)}"/>`,
+      actions: [
+        { label: 'Cancel' },
+        { label: 'Save', primary: true, onClick: () => {
+          state.savedListFilters.push({ id: 'flt-' + Date.now(), name: document.querySelector('#filtName').value, config: JSON.parse(JSON.stringify(s)) });
+          queuePush(); toast('Filter saved');
+        }},
+      ],
+    });
+  };
+  actions.appendChild(dlBtn); actions.appendChild(expBtn); actions.appendChild(saveBtn);
+  main.appendChild(actions);
+}
+
+function renderListViewSwap(main) { renderListView(main); }
+
+function buildListRows(metricIds, from, to) {
+  const rows = [];
+  const d = new Date(from);
+  while (d <= to) {
+    const key = ymd(d);
+    const log = state.logs[key];
+    const values = {};
+    let anyLogged = false;
+    let hasOutOfRange = false;
+    let outOfRangeCount = 0;
+    metricIds.forEach(mid => {
+      const v = log && !log.archived && !log.deleted ? extractMetric(log, mid) : null;
+      values[mid] = v;
+      if (v !== null && v !== undefined) anyLogged = true;
+      if (isOutOfRange(v, mid)) { hasOutOfRange = true; outOfRangeCount++; }
+    });
+    rows.push({ date: key, values, anyLogged, hasOutOfRange, outOfRangeCount });
+    d.setDate(d.getDate() + 1);
+  }
+  return rows.filter(r => r.anyLogged);
+}
+
+function openCustomFilterModal(s, onDone) {
+  const { from, to } = rangeDates(s.range, s.customFrom, s.customTo);
+  const allRows = buildListRows(s.metrics, from, to);
+  // Pre-check by current filter
+  let preChecked = new Set();
+  if (s.customSelectedDates) preChecked = new Set(s.customSelectedDates);
+  else if (s.show === 'out-of-range') allRows.filter(r => r.hasOutOfRange).forEach(r => preChecked.add(r.date));
+  else if (s.show === 'in-range') allRows.filter(r => !r.hasOutOfRange).forEach(r => preChecked.add(r.date));
+  else allRows.forEach(r => preChecked.add(r.date));
+
+  let html = '<p style="font-size:12px; color:var(--text-dim); margin-bottom:10px;">Uncheck to remove. Check more to add.</p><div style="max-height:300px; overflow-y:auto;">';
+  allRows.forEach(r => {
+    const label = `${shortDate(r.date)} · ` + s.metrics.map(mid => {
+      const v = r.values[mid];
+      const ynM = isYNMetric(mid);
+      return `${metricMeta(mid).label}: ${v === null ? '—' : ynM ? (v ? 'Yes' : 'No') : formatMetric(v, mid)}`;
+    }).join(' · ');
+    html += `<label style="display:block; padding:6px 0; font-size:13px;"><input type="checkbox" data-date="${r.date}" ${preChecked.has(r.date) ? 'checked' : ''}/> ${escapeHtml(label)}</label>`;
+  });
+  html += '</div>';
+  modal({
+    title: 'Refine selection',
+    body: html,
+    actions: [
+      { label: 'Cancel' },
+      { label: 'Apply', primary: true, onClick: () => {
+        const sel = [...document.querySelectorAll('input[data-date]:checked')].map(el => el.dataset.date);
+        s.show = 'custom';
+        s.customSelectedDates = sel;
+        onDone();
+      }},
+    ],
+  });
+}
+
+function openLogModal(date) {
+  const log = getLog(date);
+  let html = `<div style="max-height:400px; overflow-y:auto; font-size:13px;">`;
+  const fields = [
+    ['Bedtime', log.data.bedtime], ['Wake up', log.data.wakeUp],
+    ['Sleep quality', log.data.sleepQuality], ['Meds time', log.data.medsTime],
+    ['Weight', log.data.weight], ['Workday', log.data.workday],
+    ['Workout', log.data.workout ? `Yes (${log.data.workoutType || ''})` : (log.data.workout === false ? 'No' : '')],
+    ['Caffeine', log.data.caffeine ? `Yes (${log.data.caffeineCount} drinks)` : (log.data.caffeine === false ? 'No' : '')],
+    ['Walk', log.data.walk ? `Yes (${log.data.walkMinutes} min)` : (log.data.walk === false ? 'No' : '')],
+    ['Wash hair', log.data.washHair ? `Yes${log.data.k18 ? ' (K18)' : ''}` : (log.data.washHair === false ? 'No' : '')],
+    ['Protein shake', log.data.proteinShake ? `Yes${log.data.collagen ? ' + collagen' : ''}` : (log.data.proteinShake === false ? 'No' : '')],
+    ['Food', log.data.food + (log.data.foodNotes ? ` — ${log.data.foodNotes}` : '')],
+    ['Alcohol', log.data.alcohol ? `Yes (${log.data.alcoholCount} drinks)` : (log.data.alcohol === false ? 'No' : '')],
+    ['CBD', log.data.cbd ? `Yes (${log.data.cbdTime})` : (log.data.cbd === false ? 'No' : '')],
+    ['TV', log.data.tv ? `Yes (${log.data.tvLocation}${log.data.tvPosture ? ', ' + log.data.tvPosture : ''}, ${log.data.tvHours}h)` : (log.data.tv === false ? 'No' : '')],
+    ['Palpitations', log.data.palpitations ? `Yes — ${log.data.palpitationsNotes}` : (log.data.palpitations === false ? 'No' : '')],
+    ['Mood', log.data.mood + (log.data.moodNotes ? ` — ${log.data.moodNotes}` : '')],
+    ['Stress', log.data.stress + (log.data.stressNotes ? ` — ${log.data.stressNotes}` : '')],
+    ['Phone', `${log.data.phoneHours || 0}h ${log.data.phoneMinutes || 0}m`],
+  ];
+  fields.forEach(([l,v]) => {
+    if (v !== '' && v !== null && v !== undefined) {
+      html += `<div style="padding:5px 0; border-bottom:1px solid var(--border);"><strong>${l}:</strong> ${escapeHtml(String(v))}</div>`;
+    }
+  });
+  html += '</div>';
+  modal({
+    title: prettyDate(date),
+    body: html,
+    actions: [
+      { label: 'Close' },
+      { label: 'Open full editor →', primary: true, onClick: () => { state.today = date; go('today'); state.today = ymd(new Date()); } },
+    ],
+  });
+}
+
+// ============= SAVED REPORTS =============
+function renderSavedReports(main) {
+  if (!state._scratch || state._scratch.kind !== 'saved') {
+    state._scratch = { kind: 'saved', tab: 'templates', search: '' };
+  }
+  const s = state._scratch;
+  main.innerHTML = '';
+  main.appendChild(backButton('reports'));
+  // Search
+  const searchCard = document.createElement('div'); searchCard.className = 'card';
+  const searchIn = document.createElement('input');
+  searchIn.type='text'; searchIn.className='text-input'; searchIn.placeholder='Search saved reports...';
+  searchIn.value = s.search;
+  searchIn.oninput = () => { s.search = searchIn.value; renderSavedReportsSwap(main); };
+  searchCard.appendChild(searchIn);
+  main.appendChild(searchCard);
+
+  // Tab toggle
+  const tabCard = document.createElement('div'); tabCard.className = 'card';
+  const tabRow = document.createElement('div'); tabRow.className = 'pill-row';
+  ['templates','snapshots'].forEach(t => {
+    const b = document.createElement('button');
+    b.className = 'pill' + (s.tab === t ? ' active' : '');
+    const count = t === 'templates' ? state.savedTemplates.length : state.savedSnapshots.length;
+    b.textContent = `${t.charAt(0).toUpperCase() + t.slice(1)} (${count})`;
+    b.onclick = () => { s.tab = t; renderSavedReportsSwap(main); };
+    tabRow.appendChild(b);
+  });
+  tabCard.appendChild(tabRow);
+  main.appendChild(tabCard);
+
+  // List
+  const list = s.tab === 'templates' ? state.savedTemplates : state.savedSnapshots;
+  const filtered = list.filter(i => !s.search || i.name.toLowerCase().includes(s.search.toLowerCase()));
+  const listCard = document.createElement('div'); listCard.className = 'card';
+  if (filtered.length === 0) {
+    listCard.innerHTML = `<p style="color:var(--text-muted); font-size:13px;">No ${s.tab}${s.search ? ' matching "' + escapeHtml(s.search) + '"' : ''} yet.</p>`;
+  } else {
+    filtered.forEach(item => {
+      const it = document.createElement('div'); it.className = 'saved-item';
+      const meta = item.config && item.config.metrics ? item.config.metrics.map(m => metricMeta(m).label).join(' + ') : '';
+      const dateStr = item.savedAt ? ' · saved ' + shortDate(item.savedAt.slice(0,10)) : '';
+      it.innerHTML = `<div class="saved-item__title">${escapeHtml(item.name)}</div>
+        <div class="saved-item__meta">${meta} · ${item.config.range || '?'}${dateStr}</div>`;
+      const actions = document.createElement('div'); actions.className = 'saved-item__actions';
+      const open = document.createElement('button'); open.className='btn btn--small'; open.textContent='Open';
+      open.onclick = () => openSaved(item, s.tab === 'snapshots');
+      actions.appendChild(open);
+      if (s.tab === 'snapshots') {
+        const clone = document.createElement('button'); clone.className='btn btn--small btn--secondary'; clone.textContent='Clone + Update';
+        clone.onclick = () => cloneAndUpdateSnapshot(item);
+        actions.appendChild(clone);
+      }
+      const expAct = document.createElement('button'); expAct.className='btn btn--small btn--secondary'; expAct.textContent='+ Export';
+      expAct.onclick = () => {
+        state.exportFolder.push({
+          id: 'ef-' + Date.now(), kind: s.tab === 'snapshots' ? 'snapshot' : 'template',
+          title: item.name, config: JSON.parse(JSON.stringify(item.config)),
+          frozenData: item.frozenData ? JSON.parse(JSON.stringify(item.frozenData)) : null,
+          note: '',
+        });
+        queuePush(); updateExportBadge();
+        toast(`Added to Export Folder (${state.exportFolder.length})`);
+      };
+      actions.appendChild(expAct);
+      const rename = document.createElement('button'); rename.className='btn btn--small btn--secondary'; rename.textContent='Rename';
+      rename.onclick = () => {
+        modal({
+          title: 'Rename',
+          body: `<input type="text" id="renameIn" class="text-input" value="${escapeHtml(item.name)}"/>`,
+          actions: [
+            { label: 'Cancel' },
+            { label: 'Save', primary: true, onClick: () => { item.name = document.querySelector('#renameIn').value; queuePush(); renderSavedReportsSwap(main); } },
+          ],
+        });
+      };
+      actions.appendChild(rename);
+      const del = document.createElement('button'); del.className='btn btn--small btn--ghost'; del.style.color='var(--bad)'; del.textContent='Delete';
+      del.onclick = () => {
+        modal({
+          title: 'Delete?', body: 'This cannot be undone.',
+          actions: [
+            { label: 'Cancel' },
+            { label: 'Delete', primary: true, onClick: () => {
+              const arr = s.tab === 'templates' ? state.savedTemplates : state.savedSnapshots;
+              const idx = arr.findIndex(x => x.id === item.id);
+              if (idx >= 0) arr.splice(idx, 1);
+              queuePush(); renderSavedReportsSwap(main);
+            } },
+          ],
+        });
+      };
+      actions.appendChild(del);
+      it.appendChild(actions);
+      listCard.appendChild(it);
+    });
+  }
+  main.appendChild(listCard);
+}
+
+function renderSavedReportsSwap(main) { renderSavedReports(main); }
+
+function openSaved(item, isSnapshot) {
+  state._scratch = { kind: 'builder', ...JSON.parse(JSON.stringify(item.config)) };
+  if (isSnapshot) state._scratch._snapshotData = item.frozenData;
+  openReportSubpage('chartbuilder');
+}
+
+function cloneAndUpdateSnapshot(item) {
+  const cloned = { ...item.config };
+  const { from, to } = rangeDates(cloned.range, cloned.customFrom, cloned.customTo);
+  const frozen = {};
+  (cloned.metrics || []).forEach(mid => { frozen[mid] = getSeries(mid, from, to); });
+  state.savedSnapshots.push({
+    id: 'snap-' + Date.now(),
+    name: item.name + ' (updated ' + shortDate(ymd(new Date())) + ')',
+    savedAt: new Date().toISOString(),
+    config: JSON.parse(JSON.stringify(cloned)),
+    frozenData: frozen,
+  });
+  queuePush(); toast('Cloned + updated snapshot');
+  renderSavedReportsSwap($('#main'));
+}
+
+// ============= EXPORT FOLDER =============
+function renderExportFolder(main) {
+  if (!state._scratch || state._scratch.kind !== 'export') {
+    state._scratch = { kind: 'export', layout: 'one-per-page' };
+  }
+  const s = state._scratch;
+
+  main.appendChild(backButton('reports'));
+
+  if (state.exportFolder.length === 0) {
+    main.appendChild(elFromHtml(`<div class="placeholder"><h3>Export Folder is empty</h3>
+      <p>Add items from any report screen using the "+ Add to Export Folder" button.<br/>You can also add specific past logs from Past Logs.</p></div>`));
+    return;
+  }
+
+  const introCard = document.createElement('div'); introCard.className = 'card';
+  introCard.innerHTML = `<div class="card__title">${state.exportFolder.length} item${state.exportFolder.length===1?'':'s'} ready to export</div>
+    <p style="font-size:12px; color:var(--text-dim); margin:0;">Drag handles (⋮⋮) to reorder. Add a note between items if you want.</p>`;
+  main.appendChild(introCard);
+
+  // Items list
+  const listCard = document.createElement('div'); listCard.className = 'card';
+  state.exportFolder.forEach((item, i) => {
+    const wrap = document.createElement('div'); wrap.className = 'export-item'; wrap.draggable = true;
+    wrap.dataset.idx = i;
+    wrap.innerHTML = `<span class="export-item__drag">⋮⋮</span>
+      <div class="export-item__body">
+        <div class="export-item__title">${i+1}. ${escapeHtml(item.title)}</div>
+        <div class="export-item__meta">${item.kind}</div>
+      </div>`;
+    const rm = document.createElement('button'); rm.className = 'export-item__remove'; rm.textContent = '✕';
+    rm.onclick = () => { state.exportFolder.splice(i, 1); queuePush(); updateExportBadge(); renderExportFolderSwap(main); };
+    wrap.appendChild(rm);
+    listCard.appendChild(wrap);
+    // Note input
+    const note = document.createElement('input');
+    note.type='text'; note.className='text-input export-item__note-input';
+    note.placeholder = 'Optional note for this item (appears above it in PDF)';
+    note.value = item.note || '';
+    note.oninput = () => { item.note = note.value; queuePush(); };
+    listCard.appendChild(note);
+
+    // Drag handlers
+    wrap.ondragstart = (e) => { e.dataTransfer.setData('text/plain', String(i)); };
+    wrap.ondragover = (e) => e.preventDefault();
+    wrap.ondrop = (e) => {
+      e.preventDefault();
+      const fromIdx = Number(e.dataTransfer.getData('text/plain'));
+      const toIdx = Number(wrap.dataset.idx);
+      if (fromIdx === toIdx) return;
+      const [moved] = state.exportFolder.splice(fromIdx, 1);
+      state.exportFolder.splice(toIdx, 0, moved);
+      queuePush(); renderExportFolderSwap(main);
+    };
+  });
+  main.appendChild(listCard);
+
+  // Layout option
+  const optCard = document.createElement('div'); optCard.className = 'card';
+  optCard.innerHTML = `<div class="card__title">PDF Layout</div>`;
+  const lRow = document.createElement('div'); lRow.className = 'pill-row';
+  [['one-per-page','One per page'], ['fit-to-fill','Fit to fill']].forEach(([v, l]) => {
+    const b = document.createElement('button');
+    b.className = 'pill' + (s.layout === v ? ' active' : '');
+    b.textContent = l;
+    b.onclick = () => { s.layout = v; renderExportFolderSwap(main); };
+    lRow.appendChild(b);
+  });
+  optCard.appendChild(lRow);
+  main.appendChild(optCard);
+
+  // Actions
+  const actions = document.createElement('div'); actions.className = 'action-row';
+  const prev = document.createElement('button'); prev.className = 'btn btn--secondary'; prev.textContent = 'Preview';
+  prev.onclick = () => previewExportFolder(s);
+  const clear = document.createElement('button'); clear.className = 'btn btn--ghost'; clear.textContent = 'Clear all';
+  clear.style.color = 'var(--bad)';
+  clear.onclick = () => modal({
+    title: 'Clear export folder?', body: 'Removes all queued items. Saved reports/templates won\'t be affected.',
+    actions: [{label:'Cancel'}, { label:'Clear', primary:true, onClick: () => { state.exportFolder = []; queuePush(); updateExportBadge(); renderExportFolderSwap(main); }}],
+  });
+  const dl = document.createElement('button'); dl.className = 'btn'; dl.textContent = 'Download all as one PDF';
+  dl.onclick = () => downloadCombinedPDF(state.exportFolder, s.layout);
+  actions.appendChild(prev); actions.appendChild(clear); actions.appendChild(dl);
+  main.appendChild(actions);
+}
+
+function renderExportFolderSwap(main) {
+  main.innerHTML = ''; renderExportFolder(main);
+}
+
+function previewExportFolder(s) {
+  let html = '<div style="max-height: 400px; overflow-y:auto;">';
+  state.exportFolder.forEach((item, i) => {
+    if (item.note) html += `<div style="font-size:12px; font-style:italic; color:var(--text-dim); margin: 12px 0 4px;">— ${escapeHtml(item.note)}</div>`;
+    html += `<div style="border:1px solid var(--border); padding:10px; margin-bottom:10px; border-radius:6px;">
+      <div style="font-weight:600;">${i+1}. ${escapeHtml(item.title)}</div>
+      <div style="font-size:12px; color:var(--text-dim);">Type: ${item.kind} · Layout: ${s.layout === 'one-per-page' ? 'New page' : 'Fit to fill'}</div>
+    </div>`;
+  });
+  html += '</div>';
+  modal({
+    title: 'Preview',
+    body: html,
+    actions: [{ label: 'Close' }],
+  });
+}
+
+// ============= PDF GENERATION =============
+async function captureCanvas(canvas) {
+  return canvas.toDataURL('image/png');
+}
+
+async function renderChartToOffscreen(metricIds, seriesList, chartType, width=800, height=400) {
+  const c = document.createElement('canvas');
+  c.width = width; c.height = height;
+  c.style.cssText = 'position:fixed; top:-9999px; left:-9999px;';
+  document.body.appendChild(c);
+  // Draw chart
+  const labels = seriesList[0].map(p => p.date.slice(5));
+  const colors = ['#607d6e', '#b87291', '#c48b5f'];
+  const datasets = metricIds.map((mid, idx) => ({
+    type: chartType === 'bar' ? 'bar' : 'line',
+    label: metricMeta(mid).label,
+    yAxisID: idx === 0 ? 'y' : 'y1',
+    data: seriesList[idx].map(p => p.value),
+    borderColor: colors[idx], backgroundColor: colors[idx] + '88',
+    borderWidth: 2, pointRadius: 2, tension: 0.25,
+  }));
+  const scales = { y: { beginAtZero: false } };
+  if (metricIds.length > 1) scales.y1 = { position: 'right', beginAtZero: false, grid: { drawOnChartArea: false } };
+  const ch = new Chart(c, {
+    type: datasets[0]?.type || 'line',
+    data: { labels, datasets },
+    options: { responsive: false, animation: false, plugins: { legend: { display: true } }, scales },
+  });
+  await new Promise(r => setTimeout(r, 100));
+  const dataUrl = c.toDataURL('image/png');
+  ch.destroy();
+  document.body.removeChild(c);
+  return dataUrl;
+}
+
+async function downloadQuickViewPDF(metricId, series, stats, rangeId, from, to) {
+  toast('Generating PDF...');
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: 'pt', format: 'letter' });
+  const meta = metricMeta(metricId);
+  doc.setFontSize(16); doc.text(`${meta.label} — Quick View`, 40, 50);
+  doc.setFontSize(10); doc.setTextColor(100);
+  doc.text(`Range: ${rangeId} (${shortDate(ymd(from))} – ${shortDate(ymd(to))})`, 40, 70);
+  doc.text(`Generated: ${new Date().toLocaleString()}`, 40, 85);
+  doc.setTextColor(0);
+  const img = await renderChartToOffscreen([metricId], [series], meta.chart === 'bar' ? 'bar' : 'line', 1100, 500);
+  doc.addImage(img, 'PNG', 40, 100, 520, 240);
+  // Stats
+  doc.setFontSize(12); doc.text('Summary', 40, 380);
+  doc.setFontSize(10);
+  const lines = [
+    ['Average', stats.avg], ['Median', stats.median],
+    ['Best', `${stats.best}${stats.bestDate ? ' (' + stats.bestDate + ')' : ''}`],
+    ['Worst', `${stats.worst}${stats.worstDate ? ' (' + stats.worstDate + ')' : ''}`],
+    ['In-range', stats.inRange], ['Out-of-range', stats.outOfRange],
+    ['Logged', stats.logged],
+  ];
+  let y = 400;
+  lines.forEach(([k, v]) => { doc.text(`${k}: ${v}`, 40, y); y += 16; });
+  doc.save(`kompass-${meta.id}-${rangeId}.pdf`);
+  toast('PDF downloaded');
+}
+
+async function downloadChartPDF(s) {
+  if (s.metrics.length === 0) { toast('Add a metric first'); return; }
+  toast('Generating PDF...');
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: 'pt', format: 'letter' });
+  const { from, to } = rangeDates(s.range, s.customFrom, s.customTo);
+  const seriesList = s.metrics.map(mid => getSeries(mid, from, to));
+  doc.setFontSize(16); doc.text(s.title || autoChartName(s), 40, 50);
+  doc.setFontSize(10); doc.setTextColor(100);
+  doc.text(`Range: ${s.range} (${shortDate(ymd(from))} – ${shortDate(ymd(to))})`, 40, 70);
+  doc.text(`Generated: ${new Date().toLocaleString()}`, 40, 85);
+  doc.setTextColor(0);
+  const img = await renderChartToOffscreen(s.metrics, seriesList, s.chartType, 1100, 500);
+  doc.addImage(img, 'PNG', 40, 100, 520, 240);
+  // Stats per metric
+  let y = 380;
+  doc.setFontSize(12); doc.text('Summary', 40, y); y += 18;
+  doc.setFontSize(10);
+  s.metrics.forEach((mid, i) => {
+    const stats = computeStats(seriesList[i], mid);
+    doc.setFont(undefined,'bold'); doc.text(metricMeta(mid).label, 40, y); y += 14;
+    doc.setFont(undefined,'normal');
+    doc.text(`Avg: ${stats.avg}  ·  Median: ${stats.median}  ·  Best: ${stats.best}  ·  Worst: ${stats.worst}`, 40, y); y += 12;
+    doc.text(`In-range: ${stats.inRange}  ·  Out-of-range: ${stats.outOfRange}  ·  Logged: ${stats.logged}`, 40, y); y += 18;
+  });
+  // Annotations
+  if (s.advanced && s.advanced.annotations && s.advanced.annotations.length) {
+    doc.setFontSize(12); doc.text('Annotations', 40, y); y += 16;
+    doc.setFontSize(10);
+    s.advanced.annotations.forEach(a => { doc.text(`${a.date}: ${a.text}`, 40, y); y += 12; });
+  }
+  doc.save(`kompass-${(s.title || 'chart').replace(/[^a-z0-9]/gi,'_')}.pdf`);
+  toast('PDF downloaded');
+}
+
+async function downloadListPDF(s, rows) {
+  toast('Generating PDF...');
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: 'pt', format: 'letter' });
+  doc.setFontSize(16); doc.text(`List View — ${s.show}`, 40, 50);
+  doc.setFontSize(10); doc.setTextColor(100);
+  const { from, to } = rangeDates(s.range, s.customFrom, s.customTo);
+  doc.text(`Range: ${s.range} (${shortDate(ymd(from))} – ${shortDate(ymd(to))})`, 40, 70);
+  doc.text(`Metrics: ${s.metrics.map(m => metricMeta(m).label).join(', ')}`, 40, 85);
+  doc.text(`Generated: ${new Date().toLocaleString()}`, 40, 100);
+  doc.setTextColor(0);
+  // Table
+  let y = 130;
+  const colW = [80, ...s.metrics.map(_ => 70)];
+  doc.setFont(undefined,'bold'); doc.text('Date', 40, y);
+  let x = 40 + colW[0];
+  s.metrics.forEach((mid, i) => { doc.text(metricMeta(mid).label.slice(0, 12), x, y); x += colW[i+1]; });
+  y += 14;
+  doc.setFont(undefined,'normal');
+  rows.forEach(r => {
+    if (y > 740) { doc.addPage(); y = 50; }
+    doc.text(shortDate(r.date), 40, y);
+    let xx = 40 + colW[0];
+    s.metrics.forEach((mid, i) => {
+      const v = r.values[mid];
+      const ynM = isYNMetric(mid);
+      const display = v === null || v === undefined ? '—' : ynM ? (v ? 'Yes' : 'No') : String(formatMetric(v, mid));
+      if (isOutOfRange(v, mid)) doc.setTextColor(184,107,107);
+      doc.text(display, xx, y);
+      doc.setTextColor(0);
+      xx += colW[i+1];
+    });
+    y += 14;
+  });
+  doc.save(`kompass-list-${s.show}-${s.range}.pdf`);
+  toast('PDF downloaded');
+}
+
+async function downloadCombinedPDF(items, layout) {
+  if (items.length === 0) { toast('Folder is empty'); return; }
+  toast('Generating combined PDF...');
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: 'pt', format: 'letter' });
+  let y = 50;
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    if (i > 0 && layout === 'one-per-page') { doc.addPage(); y = 50; }
+    if (layout === 'fit-to-fill' && y > 600) { doc.addPage(); y = 50; }
+    // Optional note
+    if (item.note) {
+      doc.setFontSize(10); doc.setFont(undefined, 'italic'); doc.setTextColor(100);
+      const wrapped = doc.splitTextToSize(item.note, 500);
+      doc.text(wrapped, 40, y); y += 14 * wrapped.length + 6;
+      doc.setFont(undefined, 'normal'); doc.setTextColor(0);
+    }
+    doc.setFontSize(13); doc.text(`${i+1}. ${item.title}`, 40, y); y += 18;
+    if (item.kind === 'quickview') {
+      const { from, to } = rangeDates(item.config.range, item.config.customFrom, item.config.customTo);
+      const series = getSeries(item.config.metric, from, to);
+      const img = await renderChartToOffscreen([item.config.metric], [series], metricMeta(item.config.metric).chart === 'bar' ? 'bar' : 'line', 1100, 400);
+      doc.addImage(img, 'PNG', 40, y, 520, 200); y += 215;
+    } else if (item.kind === 'chart' || item.kind === 'template' || item.kind === 'snapshot') {
+      let seriesList;
+      if (item.frozenData) {
+        seriesList = item.config.metrics.map(mid => item.frozenData[mid] || []);
+      } else {
+        const { from, to } = rangeDates(item.config.range, item.config.customFrom, item.config.customTo);
+        seriesList = item.config.metrics.map(mid => getSeries(mid, from, to));
+      }
+      const img = await renderChartToOffscreen(item.config.metrics, seriesList, item.config.chartType || 'line', 1100, 400);
+      doc.addImage(img, 'PNG', 40, y, 520, 200); y += 215;
+    } else if (item.kind === 'list') {
+      const { from, to } = rangeDates(item.config.range, item.config.customFrom, item.config.customTo);
+      const rows = buildListRows(item.config.metrics, from, to);
+      let filtered = rows;
+      if (item.config.show === 'in-range') filtered = filtered.filter(r => !r.hasOutOfRange && r.anyLogged);
+      else if (item.config.show === 'out-of-range') filtered = filtered.filter(r => r.hasOutOfRange);
+      else if (item.config.show === 'custom' && item.config.customSelectedDates) filtered = filtered.filter(r => item.config.customSelectedDates.includes(r.date));
+      doc.setFontSize(9);
+      filtered.slice(0, 30).forEach(r => {
+        if (y > 740) { doc.addPage(); y = 50; }
+        const vals = item.config.metrics.map(mid => {
+          const v = r.values[mid]; const ynM = isYNMetric(mid);
+          return v === null || v === undefined ? '—' : ynM ? (v ? 'Y' : 'N') : String(formatMetric(v, mid));
+        }).join('  ');
+        doc.text(`${shortDate(r.date)}  ${vals}`, 40, y); y += 12;
+      });
+      y += 8;
+    } else if (item.kind === 'pastlog') {
+      // Past log full dump
+      const log = state.logs[item.date];
+      if (log) {
+        doc.setFontSize(10);
+        const fields = listLogFields(log);
+        fields.forEach(([k, v]) => {
+          if (y > 740) { doc.addPage(); y = 50; }
+          doc.text(`${k}: ${v}`, 40, y); y += 12;
+        });
+        y += 8;
+      }
+    }
+  }
+  doc.save(`kompass-combined-${ymd(new Date())}.pdf`);
+  toast('Combined PDF downloaded');
+}
+
+function listLogFields(log) {
+  const d = log.data;
+  return [
+    ['Bedtime', d.bedtime], ['Wake up', d.wakeUp], ['Sleep quality', d.sleepQuality],
+    ['Meds time', d.medsTime], ['Weight', d.weight], ['Workday', d.workday],
+    ['Workout', d.workout ? `Yes (${d.workoutType||''})` : d.workout===false?'No':''],
+    ['Caffeine', d.caffeine ? `Yes (${d.caffeineCount})` : d.caffeine===false?'No':''],
+    ['Walk', d.walk ? `Yes (${d.walkMinutes} min)` : d.walk===false?'No':''],
+    ['Wash hair', d.washHair ? `Yes${d.k18 ? ' + K18' : ''}` : d.washHair===false?'No':''],
+    ['Protein shake', d.proteinShake ? `Yes${d.collagen ? ' + collagen' : ''}` : d.proteinShake===false?'No':''],
+    ['Food', `${d.food}${d.foodNotes ? ' — ' + d.foodNotes : ''}`],
+    ['Alcohol', d.alcohol ? `Yes (${d.alcoholCount})` : d.alcohol===false?'No':''],
+    ['CBD', d.cbd ? `Yes (${d.cbdTime})` : d.cbd===false?'No':''],
+    ['TV', d.tv ? `Yes (${d.tvLocation} ${d.tvPosture}, ${d.tvHours}h)` : d.tv===false?'No':''],
+    ['Palpitations', d.palpitations ? `Yes — ${d.palpitationsNotes}` : d.palpitations===false?'No':''],
+    ['Mood', `${d.mood}${d.moodNotes ? ' — ' + d.moodNotes : ''}`],
+    ['Stress', `${d.stress}${d.stressNotes ? ' — ' + d.stressNotes : ''}`],
+    ['Phone', `${d.phoneHours||0}h ${d.phoneMinutes||0}m`],
+  ].filter(([k,v]) => v !== '' && v !== null && v !== undefined);
 }
 
 // =============== EVENT WIRING ===============
