@@ -1,0 +1,2001 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<meta name="theme-color" content="#f7f5f1" />
+<title>Kompass</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='42' fill='none' stroke='%23607d6e' stroke-width='4'/%3E%3Cpath d='M50 18 L56 50 L50 82 L44 50 Z' fill='%23607d6e'/%3E%3C/svg%3E" />
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root {
+    --bg: #f7f5f1;
+    --surface: #ffffff;
+    --surface-2: #f0ede7;
+    --border: #e4dfd5;
+    --text: #2a2a2a;
+    --text-dim: #7a7a7a;
+    --text-muted: #a0a0a0;
+    --accent: #607d6e;
+    --accent-soft: #d8e3dc;
+    --accent-text: #3d5147;
+    --warn: #c48b5f;
+    --warn-soft: #f4e6d8;
+    --bad: #b86b6b;
+    --bad-soft: #f0dada;
+    --cycle: #b87291;
+    --cycle-soft: #f3dde7;
+    --shadow: 0 1px 2px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.04);
+    --radius: 12px;
+    --radius-sm: 8px;
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 16px;
+    line-height: 1.5;
+    overscroll-behavior-y: none;
+  }
+  button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; }
+  input, select, textarea { font-family: inherit; font-size: inherit; color: inherit; }
+  input[type="number"] { -moz-appearance: textfield; }
+  input[type="number"]::-webkit-outer-spin-button,
+  input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+  /* ===== Login ===== */
+  .login {
+    position: fixed; inset: 0; background: var(--bg); z-index: 1000;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 40px 24px;
+  }
+  .login.hidden { display: none; }
+  .login__logo {
+    width: 64px; height: 64px; margin-bottom: 16px;
+  }
+  .login__title { font-size: 28px; font-weight: 600; letter-spacing: -0.5px; margin: 0 0 4px; }
+  .login__subtitle { font-size: 14px; color: var(--text-dim); margin: 0 0 32px; }
+  .pin-dots { display: flex; gap: 14px; margin-bottom: 28px; }
+  .pin-dot {
+    width: 14px; height: 14px; border-radius: 50%;
+    border: 2px solid var(--border); background: transparent;
+    transition: all 0.15s ease;
+  }
+  .pin-dot.filled { background: var(--accent); border-color: var(--accent); }
+  .pin-dot.error { background: var(--bad); border-color: var(--bad); }
+  .keypad {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: 14px; width: 100%; max-width: 260px;
+  }
+  .keypad button {
+    aspect-ratio: 1; font-size: 24px; font-weight: 400;
+    background: var(--surface); border-radius: 50%;
+    box-shadow: var(--shadow);
+    transition: transform 0.08s ease, background 0.15s ease;
+  }
+  .keypad button:active { transform: scale(0.95); background: var(--surface-2); }
+  .keypad button.fn { background: transparent; box-shadow: none; font-size: 14px; color: var(--text-dim); }
+  .login__error { color: var(--bad); font-size: 13px; height: 20px; margin-top: 16px; }
+
+  /* ===== App shell ===== */
+  .app { display: none; min-height: 100%; }
+  .app.visible { display: block; }
+  .header {
+    position: sticky; top: 0; z-index: 100;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    padding: 14px 16px; display: flex; align-items: center; gap: 12px;
+  }
+  .menu-btn {
+    width: 38px; height: 38px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--surface); box-shadow: var(--shadow);
+  }
+  .menu-btn span {
+    display: block; width: 18px; height: 2px; background: var(--text);
+    border-radius: 1px; position: relative;
+  }
+  .menu-btn span::before, .menu-btn span::after {
+    content: ''; position: absolute; left: 0; width: 18px; height: 2px;
+    background: var(--text); border-radius: 1px;
+  }
+  .menu-btn span::before { top: -6px; }
+  .menu-btn span::after { top: 6px; }
+  .header__title { font-size: 18px; font-weight: 600; letter-spacing: -0.3px; margin: 0; }
+  .header__sync {
+    margin-left: auto; font-size: 11px; color: var(--text-muted);
+    display: flex; align-items: center; gap: 6px;
+  }
+  .header__sync::before {
+    content: ''; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--accent);
+  }
+  .header__sync.syncing::before { background: var(--warn); }
+  .header__sync.error::before { background: var(--bad); }
+
+  /* ===== Drawer ===== */
+  .drawer-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.3);
+    z-index: 200; opacity: 0; pointer-events: none;
+    transition: opacity 0.2s ease;
+  }
+  .drawer-overlay.open { opacity: 1; pointer-events: auto; }
+  .drawer {
+    position: fixed; top: 0; left: 0; bottom: 0; width: 280px;
+    background: var(--surface); z-index: 201;
+    transform: translateX(-100%);
+    transition: transform 0.25s ease;
+    display: flex; flex-direction: column;
+    box-shadow: 2px 0 12px rgba(0,0,0,0.06);
+  }
+  .drawer.open { transform: translateX(0); }
+  .drawer__header { padding: 24px 20px 16px; border-bottom: 1px solid var(--border); }
+  .drawer__title { font-size: 22px; font-weight: 600; margin: 0 0 2px; letter-spacing: -0.3px; }
+  .drawer__subtitle { font-size: 12px; color: var(--text-muted); margin: 0; }
+  .drawer__nav { padding: 12px 0; flex: 1; }
+  .drawer__item {
+    display: block; width: 100%; text-align: left;
+    padding: 12px 20px; font-size: 15px; color: var(--text);
+    transition: background 0.12s;
+  }
+  .drawer__item:hover { background: var(--surface-2); }
+  .drawer__item.active { background: var(--accent-soft); color: var(--accent-text); font-weight: 500; }
+  .drawer__footer {
+    padding: 16px 20px; border-top: 1px solid var(--border);
+    font-size: 12px; color: var(--text-muted);
+  }
+
+  /* ===== Main ===== */
+  .main {
+    max-width: 720px; margin: 0 auto; padding: 16px;
+  }
+  .page { display: none; }
+  .page.active { display: block; }
+
+  /* ===== Cards ===== */
+  .card {
+    background: var(--surface);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 18px;
+    margin-bottom: 16px;
+  }
+  .card__title {
+    font-size: 13px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.5px; color: var(--text-dim);
+    margin: 0 0 14px;
+  }
+  .card__row { display: flex; align-items: center; justify-content: space-between; }
+
+  /* ===== Section (Today's Log groups) ===== */
+  .section {
+    background: var(--surface);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    margin-bottom: 16px;
+    overflow: hidden;
+  }
+  .section__head {
+    width: 100%; display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 18px; background: var(--surface);
+    border-bottom: 1px solid transparent;
+    transition: border-color 0.2s;
+  }
+  .section.expanded .section__head { border-bottom-color: var(--border); }
+  .section__title {
+    font-size: 14px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.5px; color: var(--text-dim);
+    display: flex; align-items: center; gap: 10px;
+  }
+  .section__badge {
+    background: var(--bad); color: white; font-size: 10px;
+    padding: 2px 7px; border-radius: 10px; font-weight: 600;
+    letter-spacing: 0.3px;
+  }
+  .section__caret {
+    width: 10px; height: 10px; border-right: 2px solid var(--text-muted);
+    border-bottom: 2px solid var(--text-muted);
+    transform: rotate(45deg);
+    transition: transform 0.2s;
+  }
+  .section.expanded .section__caret { transform: rotate(-135deg); }
+  .section__body { padding: 8px 18px 18px; }
+  .section.collapsed .section__body { display: none; }
+
+  /* ===== Field rows ===== */
+  .field {
+    padding: 14px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .field:last-child { border-bottom: none; }
+  .field__label {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 8px;
+  }
+  .field__label-text { font-size: 15px; font-weight: 500; }
+  .field__label-text .req {
+    color: var(--bad); margin-left: 4px; font-weight: 600;
+  }
+  .field__value {
+    font-size: 13px; color: var(--text-dim);
+  }
+  .field__sub {
+    margin-top: 12px; padding: 12px; background: var(--surface-2);
+    border-radius: var(--radius-sm);
+  }
+  .field__sub:empty { display: none; }
+  .field__row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+  /* ===== Inputs ===== */
+  .time-input {
+    background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 8px 12px;
+    font-size: 15px; width: auto;
+  }
+  .number-input {
+    background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 8px 12px;
+    font-size: 15px; width: 80px; text-align: center;
+  }
+  .text-input {
+    background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 8px 12px;
+    font-size: 15px; width: 100%;
+  }
+  textarea.text-input { min-height: 60px; resize: vertical; font-family: inherit; }
+
+  /* ===== Toggle (y/n) ===== */
+  .toggle-group { display: flex; gap: 6px; }
+  .toggle-btn {
+    padding: 8px 18px; border: 1px solid var(--border);
+    background: var(--surface); border-radius: 20px;
+    font-size: 14px; color: var(--text-dim);
+    transition: all 0.15s;
+  }
+  .toggle-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
+  .toggle-btn.active.no { background: var(--text-muted); border-color: var(--text-muted); }
+
+  /* ===== Slider ===== */
+  .slider-wrap {
+    margin-top: 4px;
+  }
+  .slider-wrap .slider-row {
+    display: flex; align-items: center; gap: 12px;
+  }
+  .slider {
+    flex: 1; -webkit-appearance: none; appearance: none;
+    height: 6px; background: var(--border);
+    border-radius: 3px; outline: none;
+  }
+  .slider::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 22px; height: 22px; border-radius: 50%;
+    background: var(--accent); cursor: pointer;
+    border: 3px solid white; box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+  }
+  .slider::-moz-range-thumb {
+    width: 22px; height: 22px; border-radius: 50%;
+    background: var(--accent); cursor: pointer;
+    border: 3px solid white; box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+  }
+  .slider-value {
+    min-width: 28px; text-align: center; font-weight: 600;
+    font-size: 18px; color: var(--accent-text);
+  }
+  .slider-scale {
+    display: flex; justify-content: space-between;
+    margin-top: 6px; font-size: 11px; color: var(--text-muted);
+  }
+
+  /* ===== Counter ===== */
+  .counter {
+    display: inline-flex; align-items: center; gap: 4px;
+    background: var(--surface-2); border-radius: 20px;
+    padding: 4px;
+  }
+  .counter button {
+    width: 28px; height: 28px; border-radius: 50%;
+    background: var(--surface); font-size: 16px;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+  }
+  .counter button:active { background: var(--accent-soft); }
+  .counter__value {
+    min-width: 32px; text-align: center; font-weight: 600;
+    font-size: 15px;
+  }
+
+  /* ===== Buttons ===== */
+  .btn {
+    padding: 12px 20px; border-radius: var(--radius-sm);
+    background: var(--accent); color: white;
+    font-size: 15px; font-weight: 500;
+    transition: opacity 0.15s;
+  }
+  .btn:active { opacity: 0.8; }
+  .btn--secondary {
+    background: var(--surface); color: var(--text);
+    border: 1px solid var(--border);
+  }
+  .btn--full { width: 100%; }
+  .btn--small { padding: 8px 14px; font-size: 13px; }
+  .btn--ghost { background: transparent; color: var(--text-dim); }
+
+  /* ===== Cycle pill ===== */
+  .cycle-pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 14px; border-radius: 16px;
+    background: var(--surface); border: 1px solid var(--border);
+    font-size: 13px; color: var(--text-dim);
+    margin-bottom: 16px;
+  }
+  .cycle-pill.active {
+    background: var(--cycle-soft); color: var(--cycle); border-color: var(--cycle);
+  }
+  .cycle-pill::before {
+    content: ''; width: 8px; height: 8px; border-radius: 50%;
+    background: var(--text-muted);
+  }
+  .cycle-pill.active::before { background: var(--cycle); }
+
+  /* ===== Submit bar ===== */
+  .submit-bar {
+    position: sticky; bottom: 0; background: var(--bg);
+    padding: 12px 0 16px; margin-top: 8px;
+    border-top: 1px solid var(--border);
+  }
+
+  /* ===== Calendar ===== */
+  .cal {
+    background: var(--surface); border-radius: var(--radius);
+    box-shadow: var(--shadow); padding: 16px; margin-bottom: 16px;
+  }
+  .cal__head {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .cal__month { font-size: 16px; font-weight: 600; }
+  .cal__nav-btn {
+    width: 32px; height: 32px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--surface-2);
+  }
+  .cal__weekdays {
+    display: grid; grid-template-columns: repeat(7, 1fr);
+    margin-bottom: 6px;
+  }
+  .cal__weekday {
+    text-align: center; font-size: 11px; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .cal__grid {
+    display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px;
+  }
+  .cal__day {
+    position: relative; aspect-ratio: 1;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: var(--radius-sm); font-size: 14px;
+    background: var(--surface-2); color: var(--text);
+    transition: background 0.15s;
+  }
+  .cal__day.empty { background: transparent; }
+  .cal__day.today { font-weight: 700; box-shadow: inset 0 0 0 2px var(--accent); }
+  .cal__day.future { color: var(--text-muted); opacity: 0.5; }
+  .cal__day.logged:active { background: var(--accent-soft); }
+  .cal__day.logged::after {
+    content: ''; position: absolute; bottom: 6px; left: 50%;
+    transform: translateX(-50%);
+    width: 5px; height: 5px; border-radius: 50%;
+    background: var(--accent);
+  }
+  .cal__day.cycle::before {
+    content: ''; position: absolute; top: 0; right: 0;
+    width: 0; height: 0;
+    border-style: solid; border-width: 0 10px 10px 0;
+    border-color: transparent var(--cycle) transparent transparent;
+    border-top-right-radius: var(--radius-sm);
+  }
+
+  /* ===== Week list ===== */
+  .week-list { display: flex; flex-direction: column; gap: 8px; }
+  .week-item {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 12px 14px; background: var(--surface-2);
+    border-radius: var(--radius-sm); width: 100%;
+    text-align: left; font-size: 14px;
+  }
+  .week-item__date { font-weight: 500; }
+  .week-item__meta { font-size: 12px; color: var(--text-dim); }
+  .week-item.empty { color: var(--text-muted); }
+
+  /* ===== Dashboard ===== */
+  .greeting {
+    padding: 24px 4px 16px;
+  }
+  .greeting__hi {
+    font-size: 26px; font-weight: 600; letter-spacing: -0.5px; margin: 0 0 4px;
+  }
+  .greeting__focus {
+    font-size: 14px; color: var(--text-dim); margin: 0;
+    font-style: italic;
+  }
+  .progress-card {
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .progress-bar {
+    flex: 1; height: 8px; background: var(--surface-2);
+    border-radius: 4px; overflow: hidden; margin: 0 14px;
+  }
+  .progress-bar__fill {
+    height: 100%; background: var(--accent);
+    transition: width 0.3s ease;
+  }
+  .progress-value {
+    font-size: 14px; font-weight: 600; color: var(--accent-text);
+    min-width: 38px; text-align: right;
+  }
+  .metric-toggle {
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 14px;
+  }
+  .metric-toggle select {
+    background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 6px 10px;
+    font-size: 13px;
+  }
+  .chart {
+    width: 100%; height: 160px; position: relative;
+  }
+  .chart svg { width: 100%; height: 100%; }
+  .chart-empty {
+    display: flex; align-items: center; justify-content: center;
+    height: 160px; color: var(--text-muted); font-size: 13px;
+  }
+  .goals-list { display: flex; flex-direction: column; gap: 10px; margin: 0; padding: 0; list-style: none; }
+  .goal-item {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 10px 12px; background: var(--surface-2); border-radius: var(--radius-sm);
+  }
+  .streak {
+    background: var(--accent-soft); color: var(--accent-text);
+    padding: 10px 12px; border-radius: var(--radius-sm);
+    font-size: 14px; font-weight: 500;
+  }
+
+  /* ===== Settings ===== */
+  .settings-row {
+    padding: 14px 0; border-bottom: 1px solid var(--border);
+  }
+  .settings-row:last-child { border-bottom: none; }
+  .settings-row label {
+    display: block; font-size: 13px; color: var(--text-dim);
+    margin-bottom: 6px;
+  }
+
+  /* ===== Modal ===== */
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+    z-index: 300; display: none; align-items: center; justify-content: center;
+    padding: 20px;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: var(--surface); border-radius: var(--radius);
+    padding: 24px; max-width: 400px; width: 100%;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+  }
+  .modal__title { font-size: 18px; font-weight: 600; margin: 0 0 12px; }
+  .modal__body { font-size: 14px; color: var(--text); margin-bottom: 20px; }
+  .modal__body ul { margin: 8px 0 0; padding-left: 20px; }
+  .modal__actions { display: flex; gap: 10px; justify-content: flex-end; }
+
+  /* ===== Toast ===== */
+  .toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(80px);
+    background: var(--text); color: white;
+    padding: 10px 18px; border-radius: 20px;
+    font-size: 13px; z-index: 400;
+    transition: transform 0.25s ease;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+  }
+  .toast.show { transform: translateX(-50%) translateY(0); }
+
+  /* ===== Empty / placeholder ===== */
+  .placeholder {
+    padding: 60px 20px; text-align: center;
+    color: var(--text-muted);
+  }
+  .placeholder h3 { margin: 0 0 8px; font-weight: 500; color: var(--text-dim); }
+  .placeholder p { margin: 0; font-size: 14px; }
+
+  /* ===== Desktop ===== */
+  @media (min-width: 768px) {
+    .main { padding: 24px; }
+    .greeting { padding: 32px 4px 24px; }
+    .greeting__hi { font-size: 32px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ========== LOGIN ========== -->
+<div class="login" id="login">
+  <svg class="login__logo" viewBox="0 0 100 100">
+    <circle cx="50" cy="50" r="42" fill="none" stroke="#607d6e" stroke-width="4"/>
+    <path d="M50 18 L56 50 L50 82 L44 50 Z" fill="#607d6e"/>
+  </svg>
+  <h1 class="login__title">Kompass</h1>
+  <p class="login__subtitle">Enter PIN to continue</p>
+  <div class="pin-dots" id="pinDots">
+    <div class="pin-dot"></div>
+    <div class="pin-dot"></div>
+    <div class="pin-dot"></div>
+    <div class="pin-dot"></div>
+  </div>
+  <div class="keypad" id="keypad">
+    <button data-key="1">1</button>
+    <button data-key="2">2</button>
+    <button data-key="3">3</button>
+    <button data-key="4">4</button>
+    <button data-key="5">5</button>
+    <button data-key="6">6</button>
+    <button data-key="7">7</button>
+    <button data-key="8">8</button>
+    <button data-key="9">9</button>
+    <button class="fn" data-key="clear">clear</button>
+    <button data-key="0">0</button>
+    <button class="fn" data-key="back">⌫</button>
+  </div>
+  <div class="login__error" id="loginError"></div>
+</div>
+
+<!-- ========== APP ========== -->
+<div class="app" id="app">
+  <header class="header">
+    <button class="menu-btn" id="menuBtn" aria-label="Menu"><span></span></button>
+    <h1 class="header__title" id="pageTitle">Home</h1>
+    <div class="header__sync" id="syncStatus">synced</div>
+  </header>
+
+  <main class="main" id="main">
+    <!-- Pages render here -->
+  </main>
+</div>
+
+<!-- ========== DRAWER ========== -->
+<div class="drawer-overlay" id="drawerOverlay"></div>
+<nav class="drawer" id="drawer">
+  <div class="drawer__header">
+    <h2 class="drawer__title">Kompass</h2>
+    <p class="drawer__subtitle">Daily tracking</p>
+  </div>
+  <div class="drawer__nav">
+    <button class="drawer__item" data-page="home">Home</button>
+    <button class="drawer__item" data-page="today">Today's Log</button>
+    <button class="drawer__item" data-page="past">Past Logs</button>
+    <button class="drawer__item" data-page="reports">Reporting</button>
+    <button class="drawer__item" data-page="patterns">Pattern Recommendations</button>
+    <button class="drawer__item" data-page="settings">Settings</button>
+  </div>
+  <div class="drawer__footer">v0.1 · made with care</div>
+</nav>
+
+<!-- ========== MODAL ========== -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <h3 class="modal__title" id="modalTitle"></h3>
+    <div class="modal__body" id="modalBody"></div>
+    <div class="modal__actions" id="modalActions"></div>
+  </div>
+</div>
+
+<!-- ========== TOAST ========== -->
+<div class="toast" id="toast"></div>
+
+<script>
+// =============== CONFIG ===============
+const SUPABASE_URL = 'https://uoaycdrdrgvxmgeuoyhb.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVvYXljZHJkcmd2eG1nZXVveWhiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk1MTIyOTYsImV4cCI6MjA5NTA4ODI5Nn0.HLuDjhjDDd7xHN2idX2GebiV37uB1rn8UFU0Qxo81JA';
+const PIN = '1357';
+
+// =============== STATE ===============
+let state = {
+  page: 'home',
+  pinEntered: '',
+  today: ymd(new Date()),
+  todayLog: null,         // { date, data: {...}, archived: false }
+  logs: {},               // date -> log object
+  settings: {
+    weekFocus: '',
+    medDosage: '',
+    medUnit: 'mcg',
+    goals: [],            // { id, text, metric, target }
+  },
+  cycle: { active: false, startedOn: null },  // tracked separately in settings
+  metric: { week: 'sleep', month: 'sleep' },
+  syncQueue: [],
+  supabase: null,
+};
+
+const METRICS = [
+  { id: 'sleep', label: 'Sleep (hrs)', chart: 'bar' },
+  { id: 'sleepQuality', label: 'Sleep quality', chart: 'line' },
+  { id: 'mood', label: 'Mood', chart: 'line' },
+  { id: 'stress', label: 'Stress', chart: 'line' },
+  { id: 'walk', label: 'Walk (min)', chart: 'bar' },
+  { id: 'caffeine', label: 'Caffeine (drinks)', chart: 'bar' },
+  { id: 'alcohol', label: 'Alcohol (drinks)', chart: 'bar' },
+  { id: 'weight', label: 'Weight (lbs)', chart: 'line' },
+  { id: 'phone', label: 'Phone use (min)', chart: 'bar' },
+  { id: 'food', label: 'Food (1-5)', chart: 'line' },
+];
+
+// =============== HELPERS ===============
+function ymd(d) {
+  const y = d.getFullYear(), m = String(d.getMonth()+1).padStart(2,'0'), day = String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+}
+function parseYmd(s) { const [y,m,d] = s.split('-').map(Number); return new Date(y, m-1, d); }
+function prettyDate(s) {
+  const d = parseYmd(s);
+  return d.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+}
+function shortDate(s) {
+  const d = parseYmd(s);
+  return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+}
+function $(sel, root=document) { return root.querySelector(sel); }
+function $$(sel, root=document) { return [...root.querySelectorAll(sel)]; }
+function toast(msg) {
+  const t = $('#toast'); t.textContent = msg; t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'), 2200);
+}
+function setSyncStatus(s) {
+  const el = $('#syncStatus');
+  el.className = 'header__sync ' + (s==='ok' ? '' : s);
+  el.textContent = s==='syncing' ? 'syncing...' : s==='error' ? 'sync error' : 'synced';
+}
+function modal({title, body, actions}) {
+  $('#modalTitle').textContent = title;
+  $('#modalBody').innerHTML = body;
+  const a = $('#modalActions'); a.innerHTML = '';
+  actions.forEach(act => {
+    const b = document.createElement('button');
+    b.className = 'btn ' + (act.primary ? '' : 'btn--secondary');
+    b.textContent = act.label;
+    b.onclick = () => { $('#modalOverlay').classList.remove('open'); act.onClick && act.onClick(); };
+    a.appendChild(b);
+  });
+  $('#modalOverlay').classList.add('open');
+}
+
+// =============== STORAGE (local + cloud) ===============
+const STORAGE_KEY = 'kompass_data_v1';
+
+function loadLocal() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    state.logs = data.logs || {};
+    state.settings = { ...state.settings, ...(data.settings || {}) };
+    state.cycle = { ...state.cycle, ...(data.cycle || {}) };
+    state.metric = { ...state.metric, ...(data.metric || {}) };
+  } catch (e) { console.warn('Local load failed', e); }
+}
+function saveLocal() {
+  const data = { logs: state.logs, settings: state.settings, cycle: state.cycle, metric: state.metric };
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+}
+
+async function initSupabase() {
+  if (SUPABASE_ANON_KEY === 'PASTE_ANON_KEY_HERE' || !SUPABASE_ANON_KEY) {
+    setSyncStatus('error');
+    console.warn('Supabase not configured');
+    return;
+  }
+  state.supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  await pullFromCloud();
+}
+
+async function pullFromCloud() {
+  if (!state.supabase) return;
+  try {
+    setSyncStatus('syncing');
+    const { data, error } = await state.supabase.from('kompass_state').select('*').eq('id', 'main').single();
+    if (error && error.code !== 'PGRST116') throw error;
+    if (data && data.payload) {
+      const cloud = data.payload;
+      const cloudUpdated = data.updated_at ? new Date(data.updated_at).getTime() : 0;
+      const localUpdated = Number(localStorage.getItem(STORAGE_KEY + '_updated') || 0);
+      // last-write-wins; cloud wins if it's newer
+      if (cloudUpdated >= localUpdated) {
+        state.logs = cloud.logs || {};
+        state.settings = { ...state.settings, ...(cloud.settings || {}) };
+        state.cycle = { ...state.cycle, ...(cloud.cycle || {}) };
+        state.metric = { ...state.metric, ...(cloud.metric || {}) };
+        saveLocal();
+      } else {
+        await pushToCloud();
+      }
+    } else {
+      await pushToCloud();
+    }
+    setSyncStatus('ok');
+  } catch (e) {
+    console.warn('Pull failed', e); setSyncStatus('error');
+  }
+}
+
+let pushDebounce = null;
+function queuePush() {
+  saveLocal();
+  localStorage.setItem(STORAGE_KEY + '_updated', String(Date.now()));
+  if (!state.supabase) return;
+  clearTimeout(pushDebounce);
+  setSyncStatus('syncing');
+  pushDebounce = setTimeout(pushToCloud, 800);
+}
+async function pushToCloud() {
+  if (!state.supabase) return;
+  try {
+    const payload = { logs: state.logs, settings: state.settings, cycle: state.cycle, metric: state.metric };
+    const { error } = await state.supabase.from('kompass_state').upsert({
+      id: 'main',
+      payload,
+      updated_at: new Date().toISOString(),
+    });
+    if (error) throw error;
+    setSyncStatus('ok');
+  } catch (e) {
+    console.warn('Push failed', e); setSyncStatus('error');
+  }
+}
+
+// =============== LOG MODEL ===============
+function blankLog(date) {
+  return {
+    date,
+    archived: false,
+    deleted: false,
+    submittedAt: null,
+    data: {
+      bedtime: '',         // HH:MM (previous night)
+      wakeUp: '',          // HH:MM
+      sleepQuality: null,  // 1-5
+      medsTime: '',        // HH:MM
+      weight: '',          // number
+      workday: null,       // true/false
+      workout: null,       // true/false
+      workoutType: '',     // Power / Pilates / Barre / Other
+      workoutOther: '',
+      caffeine: null,
+      caffeineCount: 1,
+      walk: null,
+      walkMinutes: 10,
+      washHair: null,
+      k18: null,
+      proteinShake: null,
+      collagen: null,
+      food: null,          // 1-5
+      foodAteOut: null,
+      foodNutrients: null,
+      foodNotes: '',
+      alcohol: null,
+      alcoholCount: 1,
+      cbd: null,
+      cbdTime: '',
+      tv: null,
+      tvLocation: '',      // 'bed' | 'couch'
+      tvPosture: '',       // 'upright' | 'laying'
+      tvHours: 1,
+      palpitations: null,
+      palpitationsNotes: '',
+      mood: null,          // 1-10
+      moodNotes: '',
+      stress: null,
+      stressNotes: '',
+      phoneHours: '',
+      phoneMinutes: '',
+      // cycle (if active for this day)
+      cycleBleed: '',      // light/medium/heavy
+      cycleBloating: null,
+      cycleCramping: null,
+      cycleSymptoms: '',
+    },
+  };
+}
+function getLog(date) {
+  if (!state.logs[date]) state.logs[date] = blankLog(date);
+  return state.logs[date];
+}
+function isCycleDayFor(date) {
+  if (!state.cycle.startedOn) return false;
+  const start = parseYmd(state.cycle.startedOn).getTime();
+  const d = parseYmd(date).getTime();
+  // If active, every day from start to today; if ended (endedOn), only between start and end
+  if (state.cycle.active) return d >= start;
+  if (state.cycle.endedOn) {
+    const end = parseYmd(state.cycle.endedOn).getTime();
+    return d >= start && d <= end;
+  }
+  return false;
+}
+
+const REQUIRED_FIELDS = [
+  { key: 'bedtime', label: 'Bedtime' },
+  { key: 'wakeUp', label: 'Wake up' },
+  { key: 'sleepQuality', label: 'Sleep quality' },
+  { key: 'medsTime', label: 'Meds time' },
+  { key: 'weight', label: 'Weight' },
+  { key: 'workday', label: 'Workday' },
+  { key: 'food', label: 'Food intake' },
+  { key: 'mood', label: 'Mood' },
+  { key: 'stress', label: 'Stress' },
+];
+function missingRequired(log) {
+  return REQUIRED_FIELDS.filter(f => {
+    const v = log.data[f.key];
+    return v === null || v === undefined || v === '';
+  });
+}
+
+// =============== PIN LOGIN ===============
+function renderPinDots() {
+  const dots = $$('.pin-dot');
+  dots.forEach((d, i) => {
+    d.classList.toggle('filled', i < state.pinEntered.length);
+    d.classList.remove('error');
+  });
+}
+function handlePinKey(k) {
+  if (k === 'back') { state.pinEntered = state.pinEntered.slice(0, -1); }
+  else if (k === 'clear') { state.pinEntered = ''; }
+  else if (state.pinEntered.length < 4) { state.pinEntered += k; }
+  renderPinDots();
+  $('#loginError').textContent = '';
+  if (state.pinEntered.length === 4) {
+    if (state.pinEntered === PIN) {
+      sessionStorage.setItem('kompass_unlocked', '1');
+      showApp();
+    } else {
+      $$('.pin-dot').forEach(d => d.classList.add('error'));
+      $('#loginError').textContent = 'Incorrect PIN';
+      setTimeout(() => { state.pinEntered = ''; renderPinDots(); }, 500);
+    }
+  }
+}
+function showApp() {
+  $('#login').classList.add('hidden');
+  $('#app').classList.add('visible');
+  go(state.page);
+  initSupabase();
+}
+
+// =============== DRAWER ===============
+function openDrawer() { $('#drawer').classList.add('open'); $('#drawerOverlay').classList.add('open'); }
+function closeDrawer() { $('#drawer').classList.remove('open'); $('#drawerOverlay').classList.remove('open'); }
+
+// =============== NAV ===============
+function go(page) {
+  state.page = page;
+  $$('.drawer__item').forEach(el => el.classList.toggle('active', el.dataset.page === page));
+  const titles = { home: 'Home', today: "Today's Log", past: 'Past Logs',
+    reports: 'Reporting', patterns: 'Patterns', settings: 'Settings' };
+  $('#pageTitle').textContent = titles[page] || '';
+  const main = $('#main');
+  main.innerHTML = '';
+  if (page === 'home') renderHome(main);
+  else if (page === 'today') renderToday(main, state.today);
+  else if (page === 'past') renderPast(main);
+  else if (page === 'reports') renderPlaceholder(main, 'Reporting', 'Coming next — once we design what reports you want, this is where they live.');
+  else if (page === 'patterns') renderPlaceholder(main, 'Pattern Recommendations', 'AI-ish insights coming later. This will surface "your flares correlate with X" once you have enough data.');
+  else if (page === 'settings') renderSettings(main);
+  closeDrawer();
+  window.scrollTo(0, 0);
+}
+
+function renderPlaceholder(root, title, msg) {
+  const div = document.createElement('div');
+  div.className = 'placeholder';
+  div.innerHTML = `<h3>${title}</h3><p>${msg}</p>`;
+  root.appendChild(div);
+}
+
+// =============== HOME DASHBOARD ===============
+function renderHome(root) {
+  const greeting = document.createElement('div');
+  greeting.className = 'greeting';
+  greeting.innerHTML = `
+    <h2 class="greeting__hi">Hello, Kelsey</h2>
+    <p class="greeting__focus">${state.settings.weekFocus ? 'This week: ' + escapeHtml(state.settings.weekFocus) : '(set this week\'s focus in Settings)'}</p>
+  `;
+  root.appendChild(greeting);
+
+  // Today's log progress
+  const log = getLog(state.today);
+  const missing = missingRequired(log);
+  const total = REQUIRED_FIELDS.length;
+  const done = total - missing.length;
+  const pct = Math.round((done / total) * 100);
+  const progCard = document.createElement('div');
+  progCard.className = 'card';
+  progCard.innerHTML = `
+    <div class="card__title">Today's Log</div>
+    <div class="progress-card">
+      <span style="font-size: 13px; color: var(--text-dim);">${done}/${total}</span>
+      <div class="progress-bar"><div class="progress-bar__fill" style="width:${pct}%"></div></div>
+      <span class="progress-value">${pct}%</span>
+    </div>
+    <button class="btn btn--small btn--secondary" style="margin-top: 14px;" onclick="go('today')">Continue logging</button>
+  `;
+  root.appendChild(progCard);
+
+  // This Week chart
+  const weekCard = makeChartCard('This Week', state.metric.week, 'week', val => {
+    state.metric.week = val; queuePush(); go('home');
+  });
+  root.appendChild(weekCard);
+
+  // This Month chart
+  const monthCard = makeChartCard('This Month', state.metric.month, 'month', val => {
+    state.metric.month = val; queuePush(); go('home');
+  });
+  root.appendChild(monthCard);
+
+  // Goals + streaks
+  const goalsCard = document.createElement('div');
+  goalsCard.className = 'card';
+  let goalsHtml = `<div class="card__title">Goals & Encouragement</div>`;
+  if (state.settings.goals.length === 0) {
+    goalsHtml += `<p style="color: var(--text-muted); font-size: 13px; margin: 0 0 12px;">No goals yet. Add some in Settings.</p>`;
+  } else {
+    goalsHtml += '<ul class="goals-list">';
+    state.settings.goals.forEach(g => {
+      const progress = goalProgress(g);
+      goalsHtml += `<li class="goal-item"><span>${escapeHtml(g.text)}</span><span style="font-weight:600;">${progress}</span></li>`;
+    });
+    goalsHtml += '</ul>';
+  }
+  const streak = calcStreak();
+  if (streak > 0) {
+    goalsHtml += `<div class="streak" style="margin-top: 12px;">✦ ${streak} day${streak===1?'':'s'} logged in a row</div>`;
+  }
+  goalsCard.innerHTML = goalsHtml;
+  root.appendChild(goalsCard);
+}
+
+function makeChartCard(title, metricId, range, onChange) {
+  const card = document.createElement('div');
+  card.className = 'card';
+  const opts = METRICS.map(m => `<option value="${m.id}" ${m.id===metricId?'selected':''}>${m.label}</option>`).join('');
+  card.innerHTML = `
+    <div class="card__title">${title}</div>
+    <div class="metric-toggle">
+      <span style="font-size:13px; color: var(--text-dim);">Showing:</span>
+      <select>${opts}</select>
+    </div>
+    <div class="chart" id="chart-${range}"></div>
+  `;
+  card.querySelector('select').onchange = (e) => onChange(e.target.value);
+  setTimeout(() => drawChart(card.querySelector(`#chart-${range}`), metricId, range), 0);
+  return card;
+}
+
+function drawChart(host, metricId, range) {
+  const meta = METRICS.find(m => m.id === metricId);
+  const days = range === 'week' ? 7 : 30;
+  const today = new Date();
+  const series = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(today); d.setDate(d.getDate() - i);
+    const date = ymd(d);
+    const log = state.logs[date];
+    series.push({ date, value: log ? extractMetric(log, metricId) : null });
+  }
+  const hasData = series.some(p => p.value !== null && p.value !== undefined && !isNaN(p.value));
+  if (!hasData) {
+    host.outerHTML = `<div class="chart-empty">No ${meta.label.toLowerCase()} data yet</div>`;
+    return;
+  }
+  const w = host.clientWidth || 320, h = 160;
+  const values = series.map(p => p.value).filter(v => v !== null && v !== undefined && !isNaN(v));
+  const min = Math.min(...values), max = Math.max(...values);
+  const range_v = max - min || 1;
+  const padX = 16, padY = 20;
+  const innerW = w - padX*2, innerH = h - padY*2;
+  let svg = `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">`;
+  if (meta.chart === 'bar') {
+    const bw = innerW / series.length * 0.7;
+    const gap = innerW / series.length * 0.3;
+    series.forEach((p, i) => {
+      if (p.value === null || p.value === undefined || isNaN(p.value)) return;
+      const x = padX + i * (innerW/series.length) + gap/2;
+      const bh = ((p.value - min) / range_v) * innerH;
+      const y = h - padY - bh;
+      svg += `<rect x="${x}" y="${y}" width="${bw}" height="${Math.max(2,bh)}" rx="2" fill="#607d6e" opacity="0.85"/>`;
+    });
+  } else {
+    // line chart
+    const pts = series.map((p, i) => {
+      if (p.value === null || p.value === undefined || isNaN(p.value)) return null;
+      const x = padX + i * (innerW/(series.length-1 || 1));
+      const y = h - padY - ((p.value - min) / range_v) * innerH;
+      return { x, y };
+    });
+    let path = '';
+    pts.forEach(pt => {
+      if (!pt) return;
+      path += (path ? ' L ' : 'M ') + pt.x + ' ' + pt.y;
+    });
+    svg += `<path d="${path}" stroke="#607d6e" stroke-width="2" fill="none" stroke-linejoin="round"/>`;
+    pts.forEach(pt => { if (pt) svg += `<circle cx="${pt.x}" cy="${pt.y}" r="3" fill="#607d6e"/>`; });
+  }
+  // min/max labels
+  svg += `<text x="${padX}" y="14" font-size="10" fill="#a0a0a0">${formatMetric(max, metricId)}</text>`;
+  svg += `<text x="${padX}" y="${h-6}" font-size="10" fill="#a0a0a0">${formatMetric(min, metricId)}</text>`;
+  svg += `</svg>`;
+  host.innerHTML = svg;
+}
+function formatMetric(v, id) {
+  if (id === 'sleep') return v.toFixed(1);
+  if (id === 'weight') return v.toFixed(1);
+  return Math.round(v);
+}
+function extractMetric(log, id) {
+  const d = log.data;
+  switch(id) {
+    case 'sleep': return calcSleepHours(d.bedtime, d.wakeUp);
+    case 'sleepQuality': return d.sleepQuality;
+    case 'mood': return d.mood;
+    case 'stress': return d.stress;
+    case 'walk': return d.walk ? Number(d.walkMinutes || 0) : 0;
+    case 'caffeine': return d.caffeine ? Number(d.caffeineCount || 0) : 0;
+    case 'alcohol': return d.alcohol ? Number(d.alcoholCount || 0) : 0;
+    case 'weight': return d.weight ? Number(d.weight) : null;
+    case 'phone': {
+      const h = Number(d.phoneHours || 0), m = Number(d.phoneMinutes || 0);
+      return h*60 + m || null;
+    }
+    case 'food': return d.food;
+  }
+  return null;
+}
+function calcSleepHours(bed, wake) {
+  if (!bed || !wake) return null;
+  const [bh, bm] = bed.split(':').map(Number);
+  const [wh, wm] = wake.split(':').map(Number);
+  let mins = (wh*60 + wm) - (bh*60 + bm);
+  if (mins < 0) mins += 24*60;
+  return +(mins / 60).toFixed(2);
+}
+function calcStreak() {
+  let n = 0;
+  let d = new Date();
+  // start from yesterday (today might not be complete)
+  for (let i = 0; i < 365; i++) {
+    const key = ymd(d);
+    const log = state.logs[key];
+    if (!log || missingRequired(log).length > 0) {
+      if (i === 0) { d.setDate(d.getDate()-1); continue; }
+      break;
+    }
+    n++;
+    d.setDate(d.getDate()-1);
+  }
+  return n;
+}
+function goalProgress(g) {
+  return '—';
+}
+
+// =============== TODAY'S LOG ===============
+function renderToday(root, date) {
+  const log = getLog(date);
+  state._editingDate = date;
+
+  // Cycle pill
+  const pill = document.createElement('button');
+  const isActive = state.cycle.active && isCycleDayFor(date);
+  pill.className = 'cycle-pill' + (isActive ? ' active' : '');
+  if (isActive) {
+    const day = Math.floor((parseYmd(date) - parseYmd(state.cycle.startedOn)) / (24*3600*1000)) + 1;
+    pill.innerHTML = `Cycle: Day ${day} · tap to end`;
+    pill.onclick = () => endCycle();
+  } else {
+    pill.innerHTML = `Start cycle`;
+    pill.onclick = () => startCycle(date);
+  }
+  root.appendChild(pill);
+
+  // ===== MORNING =====
+  const morning = makeSection('Morning');
+  morning.body.appendChild(timeField('Bedtime (last night)', 'bedtime', log, true));
+  morning.body.appendChild(timeField('Wake up', 'wakeUp', log, true, () => updateSleepDisplay(morning.body)));
+  const sleepDisplay = document.createElement('div');
+  sleepDisplay.className = 'field';
+  sleepDisplay.style.cssText = 'padding: 8px 0 14px;';
+  sleepDisplay.innerHTML = `<div class="field__value" id="sleepCalc" style="font-size:13px; color: var(--accent-text);">${sleepCalcText(log)}</div>`;
+  morning.body.appendChild(sleepDisplay);
+  morning.body.appendChild(sliderField('Sleep quality', 'sleepQuality', log, 1, 5, true, ['poor','','okay','','great']));
+  morning.body.appendChild(timeField('Meds time', 'medsTime', log, true,
+    null, state.settings.medDosage ? `${state.settings.medDosage} ${state.settings.medUnit}` : null));
+  morning.body.appendChild(numberField('Weight (lbs)', 'weight', log, true, 0.1));
+  root.appendChild(morning.section);
+
+  // ===== CYCLE (if active) =====
+  if (isActive) {
+    const cycle = makeSection('Cycle', true);
+    cycle.section.style.borderLeft = '3px solid var(--cycle)';
+    cycle.body.appendChild(selectField('Bleed', 'cycleBleed', log, ['light','medium','heavy']));
+    cycle.body.appendChild(yesNoField('Bloating', 'cycleBloating', log));
+    cycle.body.appendChild(yesNoField('Cramping', 'cycleCramping', log));
+    cycle.body.appendChild(textField('Additional symptoms', 'cycleSymptoms', log));
+    root.appendChild(cycle.section);
+  }
+
+  // ===== DURING THE DAY =====
+  const day = makeSection('During the day');
+  day.body.appendChild(yesNoField('Workday', 'workday', log, true));
+  day.body.appendChild(workoutField(log, day.body));
+  day.body.appendChild(caffeineField(log, day.body));
+  day.body.appendChild(walkField(log, day.body));
+  day.body.appendChild(washHairField(log, day.body));
+  day.body.appendChild(proteinShakeField(log, day.body));
+  day.body.appendChild(foodField(log, day.body));
+  day.body.appendChild(alcoholField(log, day.body));
+  day.body.appendChild(cbdField(log, day.body));
+  day.body.appendChild(tvField(log, day.body));
+  day.body.appendChild(palpField(log, day.body));
+  root.appendChild(day.section);
+
+  // ===== EVENING =====
+  const evening = makeSection('Evening reflection');
+  evening.body.appendChild(scaleField10('Mood', 'mood', 'moodNotes', log, true));
+  evening.body.appendChild(scaleField10('Stress', 'stress', 'stressNotes', log, true));
+  evening.body.appendChild(phoneField(log));
+  root.appendChild(evening.section);
+
+  // Update badges
+  updateSectionBadges(root, log);
+
+  // Submit bar
+  const bar = document.createElement('div');
+  bar.className = 'submit-bar';
+  bar.innerHTML = `<button class="btn btn--full">Submit today's log</button>`;
+  bar.querySelector('button').onclick = () => trySubmit(log);
+  root.appendChild(bar);
+}
+
+function sleepCalcText(log) {
+  const h = calcSleepHours(log.data.bedtime, log.data.wakeUp);
+  if (h === null) return 'Enter bedtime and wake up to see sleep duration';
+  const hrs = Math.floor(h); const mins = Math.round((h - hrs)*60);
+  return `Slept ${hrs} hr ${mins} min`;
+}
+function updateSleepDisplay(root) {
+  const log = getLog(state._editingDate);
+  const el = root.querySelector('#sleepCalc');
+  if (el) el.textContent = sleepCalcText(log);
+}
+
+function makeSection(title, expanded = true) {
+  const section = document.createElement('div');
+  section.className = 'section ' + (expanded ? 'expanded' : 'collapsed');
+  const head = document.createElement('button');
+  head.className = 'section__head';
+  head.innerHTML = `<span class="section__title">${title}</span><span class="section__caret"></span>`;
+  head.onclick = () => {
+    section.classList.toggle('expanded'); section.classList.toggle('collapsed');
+  };
+  const body = document.createElement('div');
+  body.className = 'section__body';
+  section.appendChild(head); section.appendChild(body);
+  section._titleEl = head.querySelector('.section__title');
+  return { section, body };
+}
+
+function updateSectionBadges(root, log) {
+  const sections = $$('.section', root);
+  const missing = missingRequired(log);
+  const missingKeys = new Set(missing.map(f => f.key));
+  const morningKeys = ['bedtime','wakeUp','sleepQuality','medsTime','weight'];
+  const dayKeys = ['workday','food'];
+  const eveningKeys = ['mood','stress'];
+  const counts = [
+    morningKeys.filter(k => missingKeys.has(k)).length,
+    0, // cycle - no required
+    dayKeys.filter(k => missingKeys.has(k)).length,
+    eveningKeys.filter(k => missingKeys.has(k)).length,
+  ];
+  let i = 0;
+  sections.forEach(s => {
+    const t = s.querySelector('.section__title');
+    t.querySelectorAll('.section__badge').forEach(b => b.remove());
+    // We need to map sections in render order - cycle may or may not exist
+  });
+  // Simpler: just re-find by title
+  sections.forEach(s => {
+    const title = s.querySelector('.section__title').firstChild.textContent.trim();
+    let n = 0;
+    if (title.startsWith('Morning')) n = morningKeys.filter(k => missingKeys.has(k)).length;
+    else if (title.startsWith('During')) n = dayKeys.filter(k => missingKeys.has(k)).length;
+    else if (title.startsWith('Evening')) n = eveningKeys.filter(k => missingKeys.has(k)).length;
+    s.querySelectorAll('.section__badge').forEach(b => b.remove());
+    if (n > 0) {
+      const b = document.createElement('span');
+      b.className = 'section__badge';
+      b.textContent = `${n} left`;
+      s.querySelector('.section__title').appendChild(b);
+    }
+  });
+}
+
+// ===== Field builders =====
+function fieldShell(label, required) {
+  const wrap = document.createElement('div');
+  wrap.className = 'field';
+  const lbl = document.createElement('div');
+  lbl.className = 'field__label';
+  lbl.innerHTML = `<span class="field__label-text">${label}${required ? '<span class="req">*</span>' : ''}</span>`;
+  wrap.appendChild(lbl);
+  return wrap;
+}
+function timeField(label, key, log, required, onChange, hint) {
+  const wrap = fieldShell(label, required);
+  const input = document.createElement('input');
+  input.type = 'time'; input.className = 'time-input';
+  input.value = log.data[key] || '';
+  input.oninput = () => {
+    log.data[key] = input.value;
+    onLogChange();
+    if (onChange) onChange();
+  };
+  wrap.appendChild(input);
+  if (hint) {
+    const h = document.createElement('div');
+    h.style.cssText = 'font-size:12px; color: var(--text-muted); margin-top:6px;';
+    h.textContent = hint;
+    wrap.appendChild(h);
+  }
+  return wrap;
+}
+function numberField(label, key, log, required, step=1) {
+  const wrap = fieldShell(label, required);
+  const input = document.createElement('input');
+  input.type = 'number'; input.className = 'number-input';
+  input.step = step; input.inputMode = 'decimal';
+  input.value = log.data[key] || '';
+  input.oninput = () => { log.data[key] = input.value; onLogChange(); };
+  wrap.appendChild(input);
+  return wrap;
+}
+function sliderField(label, key, log, min, max, required, scaleLabels) {
+  const wrap = fieldShell(label, required);
+  const sw = document.createElement('div'); sw.className = 'slider-wrap';
+  const row = document.createElement('div'); row.className = 'slider-row';
+  const input = document.createElement('input');
+  input.type = 'range'; input.className = 'slider';
+  input.min = min; input.max = max; input.step = 1;
+  input.value = log.data[key] || Math.round((min+max)/2);
+  const val = document.createElement('div');
+  val.className = 'slider-value'; val.textContent = log.data[key] || '–';
+  input.oninput = () => { log.data[key] = Number(input.value); val.textContent = input.value; onLogChange(); };
+  // mark "touched" on first interaction so we count it as set
+  if (log.data[key] === null || log.data[key] === undefined) {
+    input.addEventListener('change', () => {
+      if (log.data[key] === null || log.data[key] === undefined) {
+        log.data[key] = Number(input.value); val.textContent = input.value; onLogChange();
+      }
+    });
+  }
+  row.appendChild(input); row.appendChild(val);
+  sw.appendChild(row);
+  if (scaleLabels) {
+    const sl = document.createElement('div'); sl.className = 'slider-scale';
+    scaleLabels.forEach(s => { const span = document.createElement('span'); span.textContent = s; sl.appendChild(span); });
+    sw.appendChild(sl);
+  }
+  wrap.appendChild(sw);
+  return wrap;
+}
+function yesNoField(label, key, log, required, onChange) {
+  const wrap = fieldShell(label, required);
+  const grp = document.createElement('div'); grp.className = 'toggle-group';
+  const yes = document.createElement('button'); yes.className = 'toggle-btn'; yes.textContent = 'Yes';
+  const no = document.createElement('button'); no.className = 'toggle-btn no'; no.textContent = 'No';
+  if (log.data[key] === true) yes.classList.add('active');
+  if (log.data[key] === false) no.classList.add('active');
+  yes.onclick = () => { log.data[key] = true; yes.classList.add('active'); no.classList.remove('active'); onLogChange(); onChange && onChange(true); };
+  no.onclick = () => { log.data[key] = false; no.classList.add('active'); yes.classList.remove('active'); onLogChange(); onChange && onChange(false); };
+  grp.appendChild(yes); grp.appendChild(no);
+  wrap.appendChild(grp);
+  return wrap;
+}
+function selectField(label, key, log, options) {
+  const wrap = fieldShell(label, false);
+  const sel = document.createElement('select');
+  sel.className = 'time-input';
+  sel.innerHTML = `<option value="">—</option>` + options.map(o => `<option value="${o}" ${log.data[key]===o?'selected':''}>${o}</option>`).join('');
+  sel.onchange = () => { log.data[key] = sel.value; onLogChange(); };
+  wrap.appendChild(sel);
+  return wrap;
+}
+function textField(label, key, log) {
+  const wrap = fieldShell(label, false);
+  const t = document.createElement('textarea');
+  t.className = 'text-input'; t.value = log.data[key] || '';
+  t.oninput = () => { log.data[key] = t.value; onLogChange(); };
+  wrap.appendChild(t);
+  return wrap;
+}
+function counterControl(value, min, max, step, onChange) {
+  const c = document.createElement('div'); c.className = 'counter';
+  const dec = document.createElement('button'); dec.textContent = '–';
+  const val = document.createElement('div'); val.className = 'counter__value';
+  const inc = document.createElement('button'); inc.textContent = '+';
+  const render = () => { val.textContent = value; };
+  dec.onclick = () => { if (value - step >= min) { value -= step; render(); onChange(value); } };
+  inc.onclick = () => { if (value + step <= max) { value += step; render(); onChange(value); } };
+  c.appendChild(dec); c.appendChild(val); c.appendChild(inc);
+  render();
+  return c;
+}
+
+// Composite fields with sub-questions
+function workoutField(log, container) {
+  const wrap = yesNoField('Workout', 'workout', log, false, (v) => {
+    redrawWorkoutSub(log, wrap);
+  });
+  const sub = document.createElement('div'); sub.className = 'field__sub';
+  wrap.appendChild(sub);
+  redrawWorkoutSub(log, wrap);
+  return wrap;
+}
+function redrawWorkoutSub(log, wrap) {
+  const sub = wrap.querySelector('.field__sub');
+  sub.innerHTML = '';
+  if (log.data.workout !== true) return;
+  const types = ['Power','Pilates','Barre','Other'];
+  const row = document.createElement('div'); row.className = 'field__row';
+  const lbl = document.createElement('span'); lbl.style.cssText='font-size:13px; color:var(--text-dim);'; lbl.textContent = 'Type:';
+  row.appendChild(lbl);
+  types.forEach(t => {
+    const b = document.createElement('button');
+    b.className = 'toggle-btn' + (log.data.workoutType === t ? ' active' : '');
+    b.textContent = t;
+    b.onclick = () => {
+      log.data.workoutType = t;
+      redrawWorkoutSub(log, wrap);
+      onLogChange();
+    };
+    row.appendChild(b);
+  });
+  sub.appendChild(row);
+  if (log.data.workoutType === 'Other') {
+    const inp = document.createElement('input');
+    inp.className = 'text-input'; inp.placeholder = 'What workout?';
+    inp.value = log.data.workoutOther || '';
+    inp.oninput = () => { log.data.workoutOther = inp.value; onLogChange(); };
+    inp.style.marginTop = '8px';
+    sub.appendChild(inp);
+  }
+}
+function caffeineField(log, container) {
+  const wrap = yesNoField('Caffeine', 'caffeine', log, false, () => redrawCaffeineSub(log, wrap));
+  const sub = document.createElement('div'); sub.className = 'field__sub';
+  wrap.appendChild(sub);
+  redrawCaffeineSub(log, wrap);
+  return wrap;
+}
+function redrawCaffeineSub(log, wrap) {
+  const sub = wrap.querySelector('.field__sub');
+  sub.innerHTML = '';
+  if (log.data.caffeine !== true) return;
+  if (!log.data.caffeineCount) log.data.caffeineCount = 1;
+  const row = document.createElement('div'); row.className = 'field__row';
+  const lbl = document.createElement('span'); lbl.style.cssText='font-size:13px; color:var(--text-dim);'; lbl.textContent = 'How many drinks?';
+  row.appendChild(lbl);
+  row.appendChild(counterControl(log.data.caffeineCount, 1, 20, 1, v => { log.data.caffeineCount = v; onLogChange(); }));
+  sub.appendChild(row);
+}
+function walkField(log, container) {
+  const wrap = yesNoField('Daily walk', 'walk', log, false, () => redrawWalkSub(log, wrap));
+  const sub = document.createElement('div'); sub.className = 'field__sub';
+  wrap.appendChild(sub);
+  redrawWalkSub(log, wrap);
+  return wrap;
+}
+function redrawWalkSub(log, wrap) {
+  const sub = wrap.querySelector('.field__sub'); sub.innerHTML = '';
+  if (log.data.walk !== true) return;
+  if (!log.data.walkMinutes) log.data.walkMinutes = 10;
+  const row = document.createElement('div'); row.className = 'field__row';
+  const lbl = document.createElement('span'); lbl.style.cssText='font-size:13px; color:var(--text-dim);'; lbl.textContent = 'Minutes:';
+  row.appendChild(lbl);
+  row.appendChild(counterControl(log.data.walkMinutes, 5, 300, 5, v => { log.data.walkMinutes = v; onLogChange(); }));
+  sub.appendChild(row);
+}
+function washHairField(log, container) {
+  const wrap = yesNoField('Wash hair', 'washHair', log, false, () => redrawWashSub(log, wrap));
+  const sub = document.createElement('div'); sub.className = 'field__sub';
+  wrap.appendChild(sub);
+  redrawWashSub(log, wrap);
+  return wrap;
+}
+function redrawWashSub(log, wrap) {
+  const sub = wrap.querySelector('.field__sub'); sub.innerHTML = '';
+  if (log.data.washHair !== true) return;
+  const k18Row = document.createElement('div'); k18Row.className = 'field__row';
+  const lbl = document.createElement('span'); lbl.style.cssText='font-size:13px; color:var(--text-dim);'; lbl.textContent = 'K18 round?';
+  const yes = document.createElement('button'); yes.className = 'toggle-btn' + (log.data.k18===true?' active':''); yes.textContent = 'Yes';
+  const no = document.createElement('button'); no.className = 'toggle-btn no' + (log.data.k18===false?' active':''); no.textContent = 'No';
+  yes.onclick = () => { log.data.k18 = true; redrawWashSub(log, wrap); onLogChange(); };
+  no.onclick = () => { log.data.k18 = false; redrawWashSub(log, wrap); onLogChange(); };
+  k18Row.appendChild(lbl); k18Row.appendChild(yes); k18Row.appendChild(no);
+  sub.appendChild(k18Row);
+}
+function proteinShakeField(log, container) {
+  const wrap = yesNoField('Protein shake', 'proteinShake', log, false, () => redrawProteinSub(log, wrap));
+  const sub = document.createElement('div'); sub.className = 'field__sub';
+  wrap.appendChild(sub);
+  redrawProteinSub(log, wrap);
+  return wrap;
+}
+function redrawProteinSub(log, wrap) {
+  const sub = wrap.querySelector('.field__sub'); sub.innerHTML = '';
+  if (log.data.proteinShake !== true) return;
+  const row = document.createElement('div'); row.className = 'field__row';
+  const lbl = document.createElement('span'); lbl.style.cssText='font-size:13px; color:var(--text-dim);'; lbl.textContent = 'Added collagen?';
+  const yes = document.createElement('button'); yes.className = 'toggle-btn' + (log.data.collagen===true?' active':''); yes.textContent = 'Yes';
+  const no = document.createElement('button'); no.className = 'toggle-btn no' + (log.data.collagen===false?' active':''); no.textContent = 'No';
+  yes.onclick = () => { log.data.collagen = true; redrawProteinSub(log, wrap); onLogChange(); };
+  no.onclick = () => { log.data.collagen = false; redrawProteinSub(log, wrap); onLogChange(); };
+  row.appendChild(lbl); row.appendChild(yes); row.appendChild(no);
+  sub.appendChild(row);
+}
+function foodField(log, container) {
+  const wrap = sliderField('Food intake (how you felt about what you ate)', 'food', log, 1, 5, true, ['rough','','okay','','great']);
+  const sub = document.createElement('div'); sub.className = 'field__sub';
+  wrap.appendChild(sub);
+  // Need to redraw sub when slider value changes - we'll override input handler
+  const slider = wrap.querySelector('input[type=range]');
+  const val = wrap.querySelector('.slider-value');
+  slider.addEventListener('input', () => {
+    log.data.food = Number(slider.value);
+    val.textContent = slider.value;
+    redrawFoodSub(log, wrap);
+    onLogChange();
+  });
+  slider.addEventListener('change', () => {
+    log.data.food = Number(slider.value);
+    redrawFoodSub(log, wrap);
+    onLogChange();
+  });
+  redrawFoodSub(log, wrap);
+  return wrap;
+}
+function redrawFoodSub(log, wrap) {
+  const sub = wrap.querySelector('.field__sub'); sub.innerHTML = '';
+  const f = log.data.food;
+  if (f === null || f === undefined || f === '') return;
+  if (f <= 3) {
+    // Ate out
+    const row1 = document.createElement('div'); row1.className = 'field__row'; row1.style.marginBottom='10px';
+    const l1 = document.createElement('span'); l1.style.cssText='font-size:13px; color:var(--text-dim); min-width:140px;'; l1.textContent = 'Ate out?';
+    const y1 = document.createElement('button'); y1.className='toggle-btn'+(log.data.foodAteOut===true?' active':''); y1.textContent='Yes';
+    const n1 = document.createElement('button'); n1.className='toggle-btn no'+(log.data.foodAteOut===false?' active':''); n1.textContent='No';
+    y1.onclick = () => { log.data.foodAteOut = true; redrawFoodSub(log, wrap); onLogChange(); };
+    n1.onclick = () => { log.data.foodAteOut = false; redrawFoodSub(log, wrap); onLogChange(); };
+    row1.appendChild(l1); row1.appendChild(y1); row1.appendChild(n1);
+    sub.appendChild(row1);
+    // Sufficient nutrients
+    const row2 = document.createElement('div'); row2.className = 'field__row'; row2.style.marginBottom='10px';
+    const l2 = document.createElement('span'); l2.style.cssText='font-size:13px; color:var(--text-dim); min-width:140px;'; l2.textContent = 'Sufficient nutrients?';
+    const y2 = document.createElement('button'); y2.className='toggle-btn'+(log.data.foodNutrients===true?' active':''); y2.textContent='Yes';
+    const n2 = document.createElement('button'); n2.className='toggle-btn no'+(log.data.foodNutrients===false?' active':''); n2.textContent='No';
+    y2.onclick = () => { log.data.foodNutrients = true; redrawFoodSub(log, wrap); onLogChange(); };
+    n2.onclick = () => { log.data.foodNutrients = false; redrawFoodSub(log, wrap); onLogChange(); };
+    row2.appendChild(l2); row2.appendChild(y2); row2.appendChild(n2);
+    sub.appendChild(row2);
+  }
+  // Notes always
+  const t = document.createElement('textarea'); t.className='text-input'; t.placeholder='Notes (optional)';
+  t.value = log.data.foodNotes || '';
+  t.oninput = () => { log.data.foodNotes = t.value; onLogChange(); };
+  sub.appendChild(t);
+}
+function alcoholField(log, container) {
+  const wrap = yesNoField('Alcohol', 'alcohol', log, false, () => redrawAlcoholSub(log, wrap));
+  const sub = document.createElement('div'); sub.className = 'field__sub';
+  wrap.appendChild(sub);
+  redrawAlcoholSub(log, wrap);
+  return wrap;
+}
+function redrawAlcoholSub(log, wrap) {
+  const sub = wrap.querySelector('.field__sub'); sub.innerHTML = '';
+  if (log.data.alcohol !== true) return;
+  if (!log.data.alcoholCount) log.data.alcoholCount = 1;
+  const row = document.createElement('div'); row.className = 'field__row';
+  const lbl = document.createElement('span'); lbl.style.cssText='font-size:13px; color:var(--text-dim);'; lbl.textContent = 'How many drinks?';
+  row.appendChild(lbl);
+  row.appendChild(counterControl(log.data.alcoholCount, 1, 20, 1, v => { log.data.alcoholCount = v; onLogChange(); }));
+  sub.appendChild(row);
+}
+function cbdField(log, container) {
+  const wrap = yesNoField('CBD', 'cbd', log, false, () => redrawCbdSub(log, wrap));
+  const sub = document.createElement('div'); sub.className = 'field__sub';
+  wrap.appendChild(sub);
+  redrawCbdSub(log, wrap);
+  return wrap;
+}
+function redrawCbdSub(log, wrap) {
+  const sub = wrap.querySelector('.field__sub'); sub.innerHTML = '';
+  if (log.data.cbd !== true) return;
+  const row = document.createElement('div'); row.className = 'field__row';
+  const lbl = document.createElement('span'); lbl.style.cssText='font-size:13px; color:var(--text-dim);'; lbl.textContent = 'Time:';
+  row.appendChild(lbl);
+  const t = document.createElement('input');
+  t.type = 'time'; t.className='time-input'; t.value = log.data.cbdTime || '';
+  t.oninput = () => { log.data.cbdTime = t.value; onLogChange(); };
+  row.appendChild(t);
+  sub.appendChild(row);
+}
+function tvField(log, container) {
+  const wrap = yesNoField('TV', 'tv', log, false, () => redrawTvSub(log, wrap));
+  const sub = document.createElement('div'); sub.className = 'field__sub';
+  wrap.appendChild(sub);
+  redrawTvSub(log, wrap);
+  return wrap;
+}
+function redrawTvSub(log, wrap) {
+  const sub = wrap.querySelector('.field__sub'); sub.innerHTML = '';
+  if (log.data.tv !== true) return;
+  // Bed or Couch
+  const row1 = document.createElement('div'); row1.className='field__row'; row1.style.marginBottom='10px';
+  const l1 = document.createElement('span'); l1.style.cssText='font-size:13px; color:var(--text-dim); min-width:80px;'; l1.textContent='Where:';
+  const bed = document.createElement('button'); bed.className='toggle-btn'+(log.data.tvLocation==='bed'?' active':''); bed.textContent='Bed';
+  const couch = document.createElement('button'); couch.className='toggle-btn'+(log.data.tvLocation==='couch'?' active':''); couch.textContent='Couch';
+  bed.onclick = () => { log.data.tvLocation = 'bed'; log.data.tvPosture = ''; redrawTvSub(log, wrap); onLogChange(); };
+  couch.onclick = () => { log.data.tvLocation = 'couch'; redrawTvSub(log, wrap); onLogChange(); };
+  row1.appendChild(l1); row1.appendChild(bed); row1.appendChild(couch);
+  sub.appendChild(row1);
+  // Posture (only if couch)
+  if (log.data.tvLocation === 'couch') {
+    const row2 = document.createElement('div'); row2.className='field__row'; row2.style.marginBottom='10px';
+    const l2 = document.createElement('span'); l2.style.cssText='font-size:13px; color:var(--text-dim); min-width:80px;'; l2.textContent='Posture:';
+    const up = document.createElement('button'); up.className='toggle-btn'+(log.data.tvPosture==='upright'?' active':''); up.textContent='Upright';
+    const lay = document.createElement('button'); lay.className='toggle-btn'+(log.data.tvPosture==='laying'?' active':''); lay.textContent='Laying down';
+    up.onclick = () => { log.data.tvPosture = 'upright'; redrawTvSub(log, wrap); onLogChange(); };
+    lay.onclick = () => { log.data.tvPosture = 'laying'; redrawTvSub(log, wrap); onLogChange(); };
+    row2.appendChild(l2); row2.appendChild(up); row2.appendChild(lay);
+    sub.appendChild(row2);
+  }
+  // Time
+  if (!log.data.tvHours) log.data.tvHours = 1;
+  const row3 = document.createElement('div'); row3.className='field__row';
+  const l3 = document.createElement('span'); l3.style.cssText='font-size:13px; color:var(--text-dim);'; l3.textContent='Hours:';
+  row3.appendChild(l3);
+  row3.appendChild(counterControl(log.data.tvHours, 0.5, 12, 0.5, v => { log.data.tvHours = v; onLogChange(); }));
+  sub.appendChild(row3);
+}
+function palpField(log, container) {
+  const wrap = yesNoField('Heart palpitations', 'palpitations', log, false, () => redrawPalpSub(log, wrap));
+  const sub = document.createElement('div'); sub.className='field__sub';
+  wrap.appendChild(sub);
+  redrawPalpSub(log, wrap);
+  return wrap;
+}
+function redrawPalpSub(log, wrap) {
+  const sub = wrap.querySelector('.field__sub'); sub.innerHTML = '';
+  if (log.data.palpitations !== true) return;
+  const t = document.createElement('textarea'); t.className='text-input'; t.placeholder='Notes';
+  t.value = log.data.palpitationsNotes || '';
+  t.oninput = () => { log.data.palpitationsNotes = t.value; onLogChange(); };
+  sub.appendChild(t);
+}
+function scaleField10(label, key, notesKey, log, required) {
+  const wrap = fieldShell(label, required);
+  const sw = document.createElement('div'); sw.className='slider-wrap';
+  const row = document.createElement('div'); row.className='slider-row';
+  const input = document.createElement('input');
+  input.type='range'; input.className='slider'; input.min=1; input.max=10; input.step=1;
+  input.value = log.data[key] || 5;
+  const val = document.createElement('div'); val.className='slider-value';
+  val.textContent = log.data[key] || '–';
+  const sub = document.createElement('div'); sub.className='field__sub';
+  const updateNotes = () => {
+    sub.innerHTML = '';
+    const v = log.data[key];
+    if (v !== null && v !== undefined && (v <= 3 || v >= 8)) {
+      const t = document.createElement('textarea'); t.className='text-input'; t.placeholder='Notes';
+      t.value = log.data[notesKey] || '';
+      t.oninput = () => { log.data[notesKey] = t.value; onLogChange(); };
+      sub.appendChild(t);
+    }
+  };
+  input.oninput = () => { log.data[key] = Number(input.value); val.textContent = input.value; updateNotes(); onLogChange(); };
+  input.addEventListener('change', () => { log.data[key] = Number(input.value); updateNotes(); onLogChange(); });
+  row.appendChild(input); row.appendChild(val);
+  sw.appendChild(row);
+  const sl = document.createElement('div'); sl.className='slider-scale';
+  ['1','','','','5 (neutral)','','','','','10'].forEach(s => { const sp=document.createElement('span'); sp.textContent=s; sl.appendChild(sp); });
+  sw.appendChild(sl);
+  wrap.appendChild(sw); wrap.appendChild(sub);
+  updateNotes();
+  return wrap;
+}
+function phoneField(log) {
+  const wrap = fieldShell('Phone use', false);
+  const row = document.createElement('div'); row.className='field__row';
+  const h = document.createElement('input'); h.type='number'; h.className='number-input'; h.placeholder='hrs'; h.min=0; h.inputMode='numeric';
+  h.value = log.data.phoneHours || '';
+  h.oninput = () => { log.data.phoneHours = h.value; onLogChange(); };
+  const hL = document.createElement('span'); hL.style.cssText='font-size:13px; color: var(--text-dim);'; hL.textContent='hrs';
+  const m = document.createElement('input'); m.type='number'; m.className='number-input'; m.placeholder='min'; m.min=0; m.max=59; m.inputMode='numeric';
+  m.value = log.data.phoneMinutes || '';
+  m.oninput = () => { log.data.phoneMinutes = m.value; onLogChange(); };
+  const mL = document.createElement('span'); mL.style.cssText='font-size:13px; color: var(--text-dim);'; mL.textContent='min';
+  row.appendChild(h); row.appendChild(hL); row.appendChild(m); row.appendChild(mL);
+  wrap.appendChild(row);
+  return wrap;
+}
+
+let logSaveDebounce = null;
+function onLogChange() {
+  clearTimeout(logSaveDebounce);
+  logSaveDebounce = setTimeout(() => {
+    updateSectionBadges($('#main'), getLog(state._editingDate));
+    queuePush();
+  }, 200);
+}
+
+function trySubmit(log) {
+  const missing = missingRequired(log);
+  if (missing.length === 0) {
+    log.submittedAt = new Date().toISOString();
+    queuePush();
+    toast('Today\'s log saved');
+    go('home');
+    return;
+  }
+  modal({
+    title: 'Some fields are blank',
+    body: 'Missing required fields:<ul>' + missing.map(f => `<li>${f.label}</li>`).join('') + '</ul>',
+    actions: [
+      { label: 'Go back', onClick: () => {} },
+      { label: 'Submit anyway', primary: true, onClick: () => {
+        log.submittedAt = new Date().toISOString();
+        queuePush();
+        toast('Submitted with blank fields');
+        go('home');
+      }},
+    ],
+  });
+}
+
+// =============== CYCLE ===============
+function startCycle(date) {
+  state.cycle.active = true;
+  state.cycle.startedOn = date;
+  state.cycle.endedOn = null;
+  queuePush();
+  go('today');
+}
+function endCycle() {
+  state.cycle.active = false;
+  state.cycle.endedOn = ymd(new Date());
+  queuePush();
+  go('today');
+}
+
+// =============== PAST LOGS ===============
+let calMonth = new Date(); calMonth.setDate(1);
+
+function renderPast(root) {
+  // Date picker card
+  const dpCard = document.createElement('div'); dpCard.className = 'card';
+  dpCard.innerHTML = `<div class="card__title">Jump to a date</div>
+    <div class="field__row">
+      <input type="date" class="time-input" id="datePicker" value="${state.today}" />
+      <button class="btn btn--small" id="datePickerGo">Open</button>
+    </div>`;
+  root.appendChild(dpCard);
+  dpCard.querySelector('#datePickerGo').onclick = () => {
+    const v = dpCard.querySelector('#datePicker').value;
+    if (v) { state.today = v; go('today'); state.today = ymd(new Date()); }
+  };
+
+  // Month calendar card
+  const calCard = document.createElement('div'); calCard.className = 'cal';
+  root.appendChild(calCard);
+  drawCalendar(calCard);
+
+  // This week card
+  const wkCard = document.createElement('div'); wkCard.className = 'card';
+  wkCard.innerHTML = `<div class="card__title">This Week</div>`;
+  const list = document.createElement('div'); list.className = 'week-list';
+  const today = new Date();
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(today); d.setDate(d.getDate() - i);
+    const key = ymd(d);
+    const log = state.logs[key];
+    const item = document.createElement('button');
+    item.className = 'week-item' + (log && !log.archived && !log.deleted ? '' : ' empty');
+    const lab = i === 0 ? 'Today' : i === 1 ? 'Yesterday' : shortDate(key);
+    const meta = log && !log.archived && !log.deleted
+      ? (log.submittedAt ? 'submitted' : `${REQUIRED_FIELDS.length - missingRequired(log).length}/${REQUIRED_FIELDS.length}`)
+      : 'no log';
+    item.innerHTML = `<span class="week-item__date">${lab}</span><span class="week-item__meta">${meta}</span>`;
+    item.onclick = () => { state._editingDate = key; openPastLog(key); };
+    list.appendChild(item);
+  }
+  wkCard.appendChild(list);
+  root.appendChild(wkCard);
+
+  // Submit different date + Archive buttons
+  const btnRow = document.createElement('div');
+  btnRow.style.cssText = 'display:flex; gap:10px; margin-top: 12px;';
+  const submitDiff = document.createElement('button');
+  submitDiff.className = 'btn btn--secondary';
+  submitDiff.style.flex = '1';
+  submitDiff.textContent = '+ Submit a Different Date';
+  submitDiff.onclick = openSubmitDifferentDateModal;
+  const archiveBtn = document.createElement('button');
+  archiveBtn.className = 'btn btn--secondary';
+  archiveBtn.style.flex = '1';
+  const archivedCount = Object.values(state.logs).filter(l => l.archived).length;
+  archiveBtn.textContent = `Archive (${archivedCount})`;
+  archiveBtn.onclick = openArchiveView;
+  btnRow.appendChild(submitDiff); btnRow.appendChild(archiveBtn);
+  root.appendChild(btnRow);
+}
+
+function drawCalendar(card) {
+  card.innerHTML = '';
+  const head = document.createElement('div'); head.className = 'cal__head';
+  const prev = document.createElement('button'); prev.className = 'cal__nav-btn'; prev.textContent='‹';
+  const next = document.createElement('button'); next.className = 'cal__nav-btn'; next.textContent='›';
+  const lbl = document.createElement('div'); lbl.className = 'cal__month';
+  lbl.textContent = calMonth.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+  prev.onclick = () => { calMonth.setMonth(calMonth.getMonth() - 1); drawCalendar(card); };
+  next.onclick = () => { calMonth.setMonth(calMonth.getMonth() + 1); drawCalendar(card); };
+  head.appendChild(prev); head.appendChild(lbl); head.appendChild(next);
+  card.appendChild(head);
+
+  const wkRow = document.createElement('div'); wkRow.className = 'cal__weekdays';
+  ['S','M','T','W','T','F','S'].forEach(w => { const e=document.createElement('div'); e.className='cal__weekday'; e.textContent=w; wkRow.appendChild(e); });
+  card.appendChild(wkRow);
+
+  const grid = document.createElement('div'); grid.className = 'cal__grid';
+  const firstDay = new Date(calMonth.getFullYear(), calMonth.getMonth(), 1);
+  const startWeekday = firstDay.getDay();
+  const daysInMonth = new Date(calMonth.getFullYear(), calMonth.getMonth()+1, 0).getDate();
+  for (let i = 0; i < startWeekday; i++) {
+    const e=document.createElement('div'); e.className='cal__day empty'; grid.appendChild(e);
+  }
+  const today = ymd(new Date());
+  for (let d = 1; d <= daysInMonth; d++) {
+    const date = new Date(calMonth.getFullYear(), calMonth.getMonth(), d);
+    const key = ymd(date);
+    const log = state.logs[key];
+    const isLogged = log && !log.archived && !log.deleted && (log.submittedAt || Object.values(log.data).some(v => v !== '' && v !== null && v !== undefined));
+    const isCycle = isCycleDayFor(key);
+    const isToday = key === today;
+    const isFuture = parseYmd(key).getTime() > parseYmd(today).getTime();
+    const cell = document.createElement('button');
+    cell.className = 'cal__day';
+    if (isLogged) cell.classList.add('logged');
+    if (isCycle) cell.classList.add('cycle');
+    if (isToday) cell.classList.add('today');
+    if (isFuture) cell.classList.add('future');
+    cell.textContent = d;
+    cell.onclick = () => { if (!isFuture) openPastLog(key); };
+    grid.appendChild(cell);
+  }
+  card.appendChild(grid);
+}
+
+function openPastLog(date) {
+  // Build a view that lets user open in edit mode + offers archive
+  const main = $('#main'); main.innerHTML = '';
+  $('#pageTitle').textContent = prettyDate(date);
+  const back = document.createElement('button');
+  back.className = 'btn btn--ghost btn--small'; back.textContent = '← Back to Past Logs';
+  back.style.marginBottom = '12px';
+  back.onclick = () => go('past');
+  main.appendChild(back);
+  const log = getLog(date);
+  state._editingDate = date;
+  // Show editable today's-log style
+  renderTodayBody(main, date);
+  // Archive / Restore / Delete buttons
+  const ctrl = document.createElement('div');
+  ctrl.style.cssText = 'display:flex; gap:10px; margin-top: 16px;';
+  if (log.archived) {
+    const restore = document.createElement('button');
+    restore.className = 'btn btn--secondary'; restore.style.flex='1'; restore.textContent = 'Restore from archive';
+    restore.onclick = () => { log.archived = false; queuePush(); toast('Restored'); openPastLog(date); };
+    ctrl.appendChild(restore);
+  } else {
+    const archive = document.createElement('button');
+    archive.className = 'btn btn--secondary'; archive.style.flex='1'; archive.textContent = 'Archive this log';
+    archive.onclick = () => {
+      modal({
+        title: 'Archive this log?',
+        body: 'It\'ll be removed from all views but recoverable from the Archive section.',
+        actions: [
+          { label: 'Cancel' },
+          { label: 'Archive', primary: true, onClick: () => { log.archived = true; queuePush(); toast('Archived'); go('past'); } },
+        ],
+      });
+    };
+    ctrl.appendChild(archive);
+  }
+  main.appendChild(ctrl);
+}
+
+function renderTodayBody(root, date) {
+  // Reuse the today renderer but skip the top page-title cycle pill logic — we pass through
+  renderToday(root, date);
+}
+
+function openSubmitDifferentDateModal() {
+  modal({
+    title: 'Pick a date',
+    body: `<input type="date" class="time-input" id="modalDate" style="width:100%;" value="${state.today}"/>`,
+    actions: [
+      { label: 'Cancel' },
+      { label: 'Open log', primary: true, onClick: () => {
+        const v = document.querySelector('#modalDate').value;
+        if (v) openPastLog(v);
+      }},
+    ],
+  });
+}
+
+function openArchiveView() {
+  const main = $('#main'); main.innerHTML = '';
+  $('#pageTitle').textContent = 'Archived Logs';
+  const back = document.createElement('button');
+  back.className='btn btn--ghost btn--small'; back.textContent='← Back to Past Logs';
+  back.style.marginBottom = '12px';
+  back.onclick = () => go('past');
+  main.appendChild(back);
+  const archived = Object.values(state.logs).filter(l => l.archived).sort((a,b) => b.date.localeCompare(a.date));
+  if (archived.length === 0) {
+    main.appendChild(elFromHtml(`<div class="placeholder"><h3>No archived logs</h3><p>Archive logs from any past log view.</p></div>`));
+    return;
+  }
+  const list = document.createElement('div'); list.className='week-list';
+  archived.forEach(log => {
+    const item = document.createElement('div');
+    item.className = 'week-item';
+    item.innerHTML = `<span class="week-item__date">${shortDate(log.date)}</span>
+      <span style="display:flex; gap:8px;">
+        <button class="btn btn--small btn--ghost" data-act="open">Open</button>
+        <button class="btn btn--small btn--ghost" data-act="delete" style="color:var(--bad);">Delete</button>
+      </span>`;
+    item.querySelector('[data-act=open]').onclick = () => openPastLog(log.date);
+    item.querySelector('[data-act=delete]').onclick = () => {
+      modal({
+        title: 'Permanently delete?',
+        body: 'This cannot be undone.',
+        actions: [
+          { label: 'Cancel' },
+          { label: 'Delete', primary: true, onClick: () => { delete state.logs[log.date]; queuePush(); toast('Deleted'); openArchiveView(); } },
+        ],
+      });
+    };
+    list.appendChild(item);
+  });
+  main.appendChild(list);
+}
+
+function elFromHtml(html) {
+  const d = document.createElement('div'); d.innerHTML = html.trim(); return d.firstChild;
+}
+function escapeHtml(s) {
+  return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// =============== SETTINGS ===============
+function renderSettings(root) {
+  const card = document.createElement('div'); card.className='card';
+  card.innerHTML = `<div class="card__title">This week's focus</div>`;
+  const focusInput = document.createElement('input');
+  focusInput.type='text'; focusInput.className='text-input';
+  focusInput.placeholder = 'e.g. drink more water, walk daily, sleep before 11pm…';
+  focusInput.value = state.settings.weekFocus || '';
+  focusInput.oninput = () => { state.settings.weekFocus = focusInput.value; queuePush(); };
+  card.appendChild(focusInput);
+  root.appendChild(card);
+
+  const medsCard = document.createElement('div'); medsCard.className='card';
+  medsCard.innerHTML = `<div class="card__title">Thyroid medication</div>`;
+  const row = document.createElement('div'); row.className='field__row';
+  const lbl = document.createElement('label'); lbl.style.cssText='font-size:13px; color:var(--text-dim);'; lbl.textContent='Dosage:';
+  const dose = document.createElement('input'); dose.type='number'; dose.step='0.1'; dose.className='number-input';
+  dose.value = state.settings.medDosage || ''; dose.placeholder='e.g. 88';
+  dose.oninput = () => { state.settings.medDosage = dose.value; queuePush(); };
+  const unit = document.createElement('select'); unit.className='time-input';
+  ['mcg','mg'].forEach(u => { const o=document.createElement('option'); o.value=u; o.textContent=u; if (state.settings.medUnit===u) o.selected=true; unit.appendChild(o); });
+  unit.onchange = () => { state.settings.medUnit = unit.value; queuePush(); };
+  row.appendChild(lbl); row.appendChild(dose); row.appendChild(unit);
+  medsCard.appendChild(row);
+  const note = document.createElement('p'); note.style.cssText='font-size:12px; color:var(--text-muted); margin: 10px 0 0;';
+  note.textContent = 'This shows next to the daily Meds Time field as a reminder.';
+  medsCard.appendChild(note);
+  root.appendChild(medsCard);
+
+  const goalsCard = document.createElement('div'); goalsCard.className='card';
+  goalsCard.innerHTML = `<div class="card__title">Goals</div>`;
+  const goalsList = document.createElement('div');
+  const refresh = () => {
+    goalsList.innerHTML = '';
+    state.settings.goals.forEach((g, i) => {
+      const row = document.createElement('div'); row.className = 'goal-item';
+      row.innerHTML = `<span>${escapeHtml(g.text)}</span>`;
+      const del = document.createElement('button'); del.className='btn btn--small btn--ghost'; del.textContent='Remove'; del.style.color='var(--bad)';
+      del.onclick = () => { state.settings.goals.splice(i,1); queuePush(); refresh(); };
+      row.appendChild(del);
+      goalsList.appendChild(row);
+    });
+    if (state.settings.goals.length === 0) {
+      const empty = document.createElement('p'); empty.style.cssText='color:var(--text-muted); font-size:13px; margin: 0;';
+      empty.textContent = 'No goals yet.';
+      goalsList.appendChild(empty);
+    }
+  };
+  refresh();
+  goalsCard.appendChild(goalsList);
+  const addRow = document.createElement('div'); addRow.style.marginTop='12px';
+  const addInput = document.createElement('input'); addInput.type='text'; addInput.className='text-input'; addInput.placeholder='e.g. Walk 5 days this week';
+  const addBtn = document.createElement('button'); addBtn.className='btn btn--small'; addBtn.textContent='Add goal'; addBtn.style.marginTop='8px';
+  addBtn.onclick = () => {
+    if (!addInput.value.trim()) return;
+    state.settings.goals.push({ id: Date.now(), text: addInput.value.trim() });
+    addInput.value = ''; queuePush(); refresh();
+  };
+  addRow.appendChild(addInput); addRow.appendChild(addBtn);
+  goalsCard.appendChild(addRow);
+  root.appendChild(goalsCard);
+
+  // Lock
+  const lockCard = document.createElement('div'); lockCard.className='card';
+  lockCard.innerHTML = `<div class="card__title">Session</div>`;
+  const lock = document.createElement('button'); lock.className='btn btn--secondary'; lock.textContent='Lock app';
+  lock.onclick = () => { sessionStorage.removeItem('kompass_unlocked'); location.reload(); };
+  lockCard.appendChild(lock);
+  root.appendChild(lockCard);
+}
+
+// =============== EVENT WIRING ===============
+$('#keypad').addEventListener('click', e => {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  handlePinKey(btn.dataset.key);
+});
+document.addEventListener('keydown', e => {
+  if ($('#login').classList.contains('hidden')) return;
+  if (/^[0-9]$/.test(e.key)) handlePinKey(e.key);
+  else if (e.key === 'Backspace') handlePinKey('back');
+});
+$('#menuBtn').onclick = openDrawer;
+$('#drawerOverlay').onclick = closeDrawer;
+$('#drawer').addEventListener('click', e => {
+  const btn = e.target.closest('.drawer__item'); if (!btn) return;
+  go(btn.dataset.page);
+});
+
+// =============== BOOT ===============
+loadLocal();
+if (sessionStorage.getItem('kompass_unlocked') === '1') {
+  showApp();
+}
+</script>
+</body>
+</html>
