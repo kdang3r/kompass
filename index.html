@@ -760,6 +760,7 @@ let state = {
     medUnit: 'mcg',
     goals: [],            // { id, text, metric, target }
     normalRanges: {},     // metricId -> { min, max } (configured later in Settings)
+    customFields: [],     // user-defined fields: { id, label, type, section, required, chart }
   },
   cycle: { active: false, startedOn: null },  // tracked separately in settings
   metric: { week: 'sleep', month: 'sleep' },
@@ -784,6 +785,40 @@ const METRICS = [
   { id: 'phone', label: 'Phone use (min)', chart: 'bar' },
   { id: 'food', label: 'Food (1-5)', chart: 'line' },
 ];
+
+// =============== CUSTOM FIELDS (user-defined) ===============
+// Field types the user can create from Settings. Numeric ones can be charted.
+const CUSTOM_TYPES = [
+  { type: 'number',  label: 'Number',      numeric: true,  chart: 'bar'  },
+  { type: 'yesno',   label: 'Yes / No',    numeric: false             },
+  { type: 'scale5',  label: '1–5 rating',  numeric: true,  chart: 'line' },
+  { type: 'scale10', label: '1–10 scale',  numeric: true,  chart: 'line' },
+  { type: 'text',    label: 'Text note',   numeric: false             },
+];
+const CUSTOM_SECTIONS = [
+  { id: 'morning', label: 'Morning' },
+  { id: 'day',     label: 'During the day' },
+  { id: 'evening', label: 'Evening reflection' },
+];
+const NUMERIC_CUSTOM_TYPES = new Set(CUSTOM_TYPES.filter(t => t.numeric).map(t => t.type));
+
+function customFields() { return state.settings.customFields || []; }
+function customFieldsFor(section) { return customFields().filter(f => f.section === section); }
+function requiredCustomFields() { return customFields().filter(f => f.required); }
+function requiredCustomKeys(section) {
+  return customFields().filter(f => f.required && f.section === section).map(f => f.id);
+}
+// Numeric custom fields become selectable chart metrics, just like the built-ins.
+function customMetrics() {
+  return customFields()
+    .filter(f => NUMERIC_CUSTOM_TYPES.has(f.type))
+    .map(f => ({ id: f.id, label: f.label, chart: f.chart || (f.type === 'number' ? 'bar' : 'line') }));
+}
+function allMetrics() { return METRICS.concat(customMetrics()); }
+// The full required set = built-in required fields + any custom field flagged required.
+function allRequiredFields() {
+  return REQUIRED_FIELDS.concat(requiredCustomFields().map(f => ({ key: f.id, label: f.label })));
+}
 
 // =============== HELPERS ===============
 function ymd(d) {
@@ -1005,7 +1040,7 @@ const REQUIRED_FIELDS = [
   { key: 'stress', label: 'Stress' },
 ];
 function missingRequired(log) {
-  return REQUIRED_FIELDS.filter(f => {
+  return allRequiredFields().filter(f => {
     const v = log.data[f.key];
     return v === null || v === undefined || v === '';
   });
@@ -1088,7 +1123,7 @@ function renderHome(root) {
   // Today's log progress
   const log = getLog(state.today);
   const missing = missingRequired(log);
-  const total = REQUIRED_FIELDS.length;
+  const total = allRequiredFields().length;
   const done = total - missing.length;
   const pct = Math.round((done / total) * 100);
   const progCard = document.createElement('div');
@@ -1141,7 +1176,7 @@ function renderHome(root) {
 function makeChartCard(title, metricId, range, onChange) {
   const card = document.createElement('div');
   card.className = 'card';
-  const opts = METRICS.map(m => `<option value="${m.id}" ${m.id===metricId?'selected':''}>${m.label}</option>`).join('');
+  const opts = allMetrics().map(m => `<option value="${m.id}" ${m.id===metricId?'selected':''}>${m.label}</option>`).join('');
   card.innerHTML = `
     <div class="card__title">${title}</div>
     <div class="metric-toggle">
@@ -1156,7 +1191,7 @@ function makeChartCard(title, metricId, range, onChange) {
 }
 
 function drawChart(host, metricId, range) {
-  const meta = METRICS.find(m => m.id === metricId);
+  const meta = allMetrics().find(m => m.id === metricId);
   const days = range === 'week' ? 7 : 30;
   const today = new Date();
   const series = [];
@@ -1232,6 +1267,12 @@ function extractMetric(log, id) {
     }
     case 'food': return d.food;
   }
+  // Custom numeric field: value is stored directly under its id.
+  const cf = customFields().find(f => f.id === id);
+  if (cf && NUMERIC_CUSTOM_TYPES.has(cf.type)) {
+    const v = d[id];
+    return (v === '' || v === null || v === undefined) ? null : Number(v);
+  }
   return null;
 }
 function calcSleepHours(bed, wake) {
@@ -1294,6 +1335,7 @@ function renderToday(root, date) {
   morning.body.appendChild(timeField('Meds time', 'medsTime', log, true,
     null, state.settings.medDosage ? `${state.settings.medDosage} ${state.settings.medUnit}` : null));
   morning.body.appendChild(numberField('Weight (lbs)', 'weight', log, true, 0.1));
+  appendCustomFields(morning.body, 'morning', log);
   root.appendChild(morning.section);
 
   // ===== CYCLE (if active) =====
@@ -1320,6 +1362,7 @@ function renderToday(root, date) {
   day.body.appendChild(cbdField(log, day.body));
   day.body.appendChild(tvField(log, day.body));
   day.body.appendChild(palpField(log, day.body));
+  appendCustomFields(day.body, 'day', log);
   root.appendChild(day.section);
 
   // ===== EVENING =====
@@ -1327,6 +1370,7 @@ function renderToday(root, date) {
   evening.body.appendChild(scaleField10('Mood', 'mood', 'moodNotes', log, true));
   evening.body.appendChild(scaleField10('Stress', 'stress', 'stressNotes', log, true));
   evening.body.appendChild(phoneField(log));
+  appendCustomFields(evening.body, 'evening', log);
   root.appendChild(evening.section);
 
   // Update badges
@@ -1372,9 +1416,9 @@ function updateSectionBadges(root, log) {
   const sections = $$('.section', root);
   const missing = missingRequired(log);
   const missingKeys = new Set(missing.map(f => f.key));
-  const morningKeys = ['bedtime','wakeUp','sleepQuality','medsTime','weight'];
-  const dayKeys = ['workday','food'];
-  const eveningKeys = ['mood','stress'];
+  const morningKeys = ['bedtime','wakeUp','sleepQuality','medsTime','weight', ...requiredCustomKeys('morning')];
+  const dayKeys = ['workday','food', ...requiredCustomKeys('day')];
+  const eveningKeys = ['mood','stress', ...requiredCustomKeys('evening')];
   const counts = [
     morningKeys.filter(k => missingKeys.has(k)).length,
     0, // cycle - no required
@@ -1494,14 +1538,30 @@ function selectField(label, key, log, options) {
   wrap.appendChild(sel);
   return wrap;
 }
-function textField(label, key, log) {
-  const wrap = fieldShell(label, false);
+function textField(label, key, log, required = false) {
+  const wrap = fieldShell(label, required);
   const t = document.createElement('textarea');
   t.className = 'text-input'; t.value = log.data[key] || '';
   t.oninput = () => { log.data[key] = t.value; onLogChange(); };
   wrap.appendChild(t);
   return wrap;
 }
+// Render a user-defined custom field using the matching built-in builder.
+function customField(def, log) {
+  switch (def.type) {
+    case 'number':  return numberField(def.label, def.id, log, def.required, 'any');
+    case 'yesno':   return yesNoField(def.label, def.id, log, def.required);
+    case 'scale5':  return sliderField(def.label, def.id, log, 1, 5, def.required, ['1','2','3','4','5']);
+    case 'scale10': return scaleField10(def.label, def.id, def.id + 'Notes', log, def.required);
+    case 'text':    return textField(def.label, def.id, log, def.required);
+  }
+  return document.createElement('div');
+}
+// Append all custom fields assigned to a section into that section's body.
+function appendCustomFields(body, section, log) {
+  customFieldsFor(section).forEach(def => body.appendChild(customField(def, log)));
+}
+
 function counterControl(value, min, max, step, onChange) {
   const c = document.createElement('div'); c.className = 'counter';
   const dec = document.createElement('button'); dec.textContent = '–';
@@ -1897,7 +1957,7 @@ function renderPast(root) {
     item.className = 'week-item' + (log && !log.archived && !log.deleted ? '' : ' empty');
     const lab = i === 0 ? 'Today' : i === 1 ? 'Yesterday' : shortDate(key);
     const meta = log && !log.archived && !log.deleted
-      ? (log.submittedAt ? 'submitted' : `${REQUIRED_FIELDS.length - missingRequired(log).length}/${REQUIRED_FIELDS.length}`)
+      ? (log.submittedAt ? 'submitted' : `${allRequiredFields().length - missingRequired(log).length}/${allRequiredFields().length}`)
       : 'no log';
     item.innerHTML = `<span class="week-item__date">${lab}</span><span class="week-item__meta">${meta}</span>`;
     item.onclick = () => { state._editingDate = key; openPastLog(key); };
@@ -2147,6 +2207,9 @@ function renderSettings(root) {
   goalsCard.appendChild(addRow);
   root.appendChild(goalsCard);
 
+  // Custom fields
+  renderCustomFieldsCard(root);
+
   // Lock
   const lockCard = document.createElement('div'); lockCard.className='card';
   lockCard.innerHTML = `<div class="card__title">Session</div>`;
@@ -2154,6 +2217,118 @@ function renderSettings(root) {
   lock.onclick = () => { sessionStorage.removeItem('kompass_unlocked'); location.reload(); };
   lockCard.appendChild(lock);
   root.appendChild(lockCard);
+}
+
+// User-defined custom fields: list, add, edit, delete.
+function renderCustomFieldsCard(root) {
+  const card = document.createElement('div'); card.className = 'card';
+  card.innerHTML = `<div class="card__title">My custom fields</div>
+    <p style="font-size:12px; color:var(--text-muted); margin:0 0 12px;">Add your own things to track. They appear in your daily log and — for number and scale fields — in Reporting &amp; Patterns.</p>`;
+
+  const list = document.createElement('div');
+  const formHost = document.createElement('div');
+  const typeLabel = (t) => (CUSTOM_TYPES.find(x => x.type === t) || {}).label || t;
+  const sectionLabel = (s) => (CUSTOM_SECTIONS.find(x => x.id === s) || {}).label || s;
+
+  function refresh() {
+    list.innerHTML = '';
+    const fields = customFields();
+    if (fields.length === 0) {
+      const empty = document.createElement('p');
+      empty.style.cssText = 'color:var(--text-muted); font-size:13px; margin:0;';
+      empty.textContent = 'No custom fields yet.';
+      list.appendChild(empty);
+    }
+    fields.forEach((f) => {
+      const row = document.createElement('div'); row.className = 'goal-item';
+      const meta = `${typeLabel(f.type)} · ${sectionLabel(f.section)}${f.required ? ' · Required' : ''}`;
+      const info = document.createElement('div');
+      info.innerHTML = `<div>${escapeHtml(f.label)}</div><div style="font-size:12px; color:var(--text-muted);">${escapeHtml(meta)}</div>`;
+      const btns = document.createElement('div'); btns.style.cssText = 'display:flex; gap:6px;';
+      const edit = document.createElement('button'); edit.className='btn btn--small btn--ghost'; edit.textContent='Edit';
+      edit.onclick = () => openForm(f);
+      const del = document.createElement('button'); del.className='btn btn--small btn--ghost'; del.textContent='Delete'; del.style.color='var(--bad)';
+      del.onclick = () => {
+        if (!confirm(`Delete "${f.label}"? Past entries keep their data, but this field is removed from your log going forward.`)) return;
+        const idx = state.settings.customFields.findIndex(x => x.id === f.id);
+        if (idx >= 0) state.settings.customFields.splice(idx, 1);
+        queuePush(); refresh();
+      };
+      btns.appendChild(edit); btns.appendChild(del);
+      row.appendChild(info); row.appendChild(btns);
+      list.appendChild(row);
+    });
+  }
+
+  function openForm(existing) {
+    formHost.innerHTML = '';
+    const f = existing || { label: '', type: 'number', section: 'day', required: false };
+    const box = document.createElement('div');
+    box.style.cssText = 'margin-top:12px; padding:14px; border:1px solid var(--border, #e3e0d8); border-radius:10px;';
+
+    const labelInput = document.createElement('input'); labelInput.type='text'; labelInput.className='text-input';
+    labelInput.placeholder = 'Field name (e.g. Water, Headache, Steps)'; labelInput.value = f.label || '';
+
+    const mkSelect = (options, selected) => {
+      const s = document.createElement('select'); s.className='time-input'; s.style.cssText='width:100%; margin-top:8px;';
+      options.forEach(o => { const op=document.createElement('option'); op.value=o.value; op.textContent=o.text; if (o.value===selected) op.selected=true; s.appendChild(op); });
+      return s;
+    };
+    const typeSel = mkSelect(CUSTOM_TYPES.map(t => ({value:t.type, text:t.label})), f.type);
+    const secSel = mkSelect(CUSTOM_SECTIONS.map(s => ({value:s.id, text:s.label})), f.section);
+
+    const reqWrap = document.createElement('label'); reqWrap.style.cssText='display:flex; align-items:center; gap:8px; margin-top:12px; font-size:14px; cursor:pointer;';
+    const reqCb = document.createElement('input'); reqCb.type='checkbox'; reqCb.checked=!!f.required;
+    reqWrap.appendChild(reqCb); reqWrap.appendChild(document.createTextNode('Required (counts toward daily completeness)'));
+
+    const chartNote = document.createElement('p'); chartNote.style.cssText='font-size:12px; color:var(--text-muted); margin:10px 0 0;';
+    const updateNote = () => {
+      const t = CUSTOM_TYPES.find(x => x.type === typeSel.value);
+      chartNote.textContent = t && t.numeric
+        ? '📈 This field will be available to chart in Reporting & Patterns.'
+        : 'This field is tracked in your log only (not charted).';
+    };
+    typeSel.onchange = updateNote; updateNote();
+
+    const btnRow = document.createElement('div'); btnRow.style.cssText='display:flex; gap:8px; margin-top:14px;';
+    const save = document.createElement('button'); save.className='btn btn--small'; save.textContent = existing ? 'Save changes' : 'Add field';
+    const cancel = document.createElement('button'); cancel.className='btn btn--small btn--ghost'; cancel.textContent='Cancel';
+    cancel.onclick = () => { formHost.innerHTML=''; };
+    save.onclick = () => {
+      const label = labelInput.value.trim();
+      if (!label) { labelInput.focus(); return; }
+      const type = typeSel.value;
+      const tmeta = CUSTOM_TYPES.find(x => x.type === type) || {};
+      const def = {
+        id: existing ? existing.id : 'cf_' + Date.now(),
+        label, type, section: secSel.value, required: reqCb.checked,
+        chart: tmeta.chart || 'line',
+      };
+      if (!state.settings.customFields) state.settings.customFields = [];
+      if (existing) {
+        const idx = state.settings.customFields.findIndex(x => x.id === existing.id);
+        if (idx >= 0) state.settings.customFields[idx] = def;
+      } else {
+        state.settings.customFields.push(def);
+      }
+      queuePush(); formHost.innerHTML=''; refresh();
+      toast(existing ? 'Field updated' : 'Field added');
+    };
+    btnRow.appendChild(save); btnRow.appendChild(cancel);
+
+    box.appendChild(labelInput); box.appendChild(typeSel); box.appendChild(secSel);
+    box.appendChild(reqWrap); box.appendChild(chartNote); box.appendChild(btnRow);
+    formHost.appendChild(box);
+    labelInput.focus();
+  }
+
+  refresh();
+  card.appendChild(list);
+  const addBtn = document.createElement('button'); addBtn.className='btn btn--small'; addBtn.textContent='+ Add a field'; addBtn.style.marginTop='12px';
+  addBtn.onclick = () => openForm(null);
+  card.appendChild(addBtn);
+  card.appendChild(formHost);
+  root.appendChild(card);
 }
 
 // =============== REPORTING ===============
@@ -2198,7 +2373,7 @@ function getSeries(metricId, from, to) {
 }
 
 function metricMeta(id) {
-  const m = METRICS.find(m => m.id === id);
+  const m = allMetrics().find(m => m.id === id);
   return m || { id, label: id, chart: 'line' };
 }
 
@@ -2351,7 +2526,7 @@ function renderQuickView(main) {
   const card = document.createElement('div'); card.className = 'card';
   card.innerHTML = `<div class="card__title">Metric</div>`;
   const sel = document.createElement('select'); sel.className = 'time-input'; sel.style.width = '100%';
-  METRICS.forEach(m => {
+  allMetrics().forEach(m => {
     const o = document.createElement('option');
     o.value = m.id; o.textContent = m.label;
     if (m.id === state._scratch.metric) o.selected = true;
@@ -2522,7 +2697,7 @@ function renderChartBuilder(main) {
     const addRow = document.createElement('div'); addRow.style.marginTop = '8px';
     const addSel = document.createElement('select'); addSel.className = 'time-input'; addSel.style.width = '100%';
     addSel.innerHTML = `<option value="">+ Add metric...</option>` +
-      METRICS.filter(m => !s.metrics.includes(m.id)).map(m => `<option value="${m.id}">${m.label}</option>`).join('');
+      allMetrics().filter(m => !s.metrics.includes(m.id)).map(m => `<option value="${m.id}">${m.label}</option>`).join('');
     addSel.onchange = () => { if (addSel.value) { s.metrics.push(addSel.value); renderChartBuilderSwap(main); } };
     addRow.appendChild(addSel);
     mcard.appendChild(addRow);
@@ -3433,7 +3608,7 @@ async function downloadCombinedPDF(items, layout) {
 
 function listLogFields(log) {
   const d = log.data;
-  return [
+  const rows = [
     ['Bedtime', d.bedtime], ['Wake up', d.wakeUp], ['Sleep quality', d.sleepQuality],
     ['Meds time', d.medsTime], ['Weight', d.weight], ['Workday', d.workday],
     ['Workout', d.workout ? `Yes (${d.workoutType||''})` : d.workout===false?'No':''],
@@ -3449,7 +3624,15 @@ function listLogFields(log) {
     ['Mood', `${d.mood}${d.moodNotes ? ' — ' + d.moodNotes : ''}`],
     ['Stress', `${d.stress}${d.stressNotes ? ' — ' + d.stressNotes : ''}`],
     ['Phone', `${d.phoneHours||0}h ${d.phoneMinutes||0}m`],
-  ].filter(([k,v]) => v !== '' && v !== null && v !== undefined);
+  ];
+  // User-defined custom fields
+  customFields().forEach(f => {
+    let v = d[f.id];
+    if (f.type === 'yesno') v = v === true ? 'Yes' : (v === false ? 'No' : '');
+    else if (f.type === 'scale10' && d[f.id + 'Notes']) v = `${v} — ${d[f.id + 'Notes']}`;
+    rows.push([f.label, v]);
+  });
+  return rows.filter(([k,v]) => v !== '' && v !== null && v !== undefined);
 }
 
 // =============== EVENT WIRING ===============
