@@ -2543,6 +2543,52 @@ async function openLabFile(f) {
   } catch (e) { console.warn(e); toast('Could not open file'); }
 }
 
+// ---- Auto-read a lab file with the parse-lab edge function (AI) ----
+const PARSE_LAB_URL = SUPABASE_URL + '/functions/v1/parse-lab';
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result).split(',')[1] || '');
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+}
+async function autoReadLabFile(file) {
+  const data = await fileToBase64(file);
+  const res = await fetch(PARSE_LAB_URL, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'apikey': SUPABASE_ANON_KEY,
+      'Authorization': 'Bearer ' + SUPABASE_ANON_KEY,
+    },
+    body: JSON.stringify({ data, media_type: file.type || 'application/pdf' }),
+  });
+  const out = await res.json().catch(() => ({ error: 'Bad response' }));
+  if (!res.ok || out.error) throw new Error(out.error || ('HTTP ' + res.status));
+  return out; // { draw_date, markers: [{name,value,unit,low,high}] }
+}
+// Map an AI-detected marker name onto an existing Kompass marker, if any.
+function normMarkerName(s) { return String(s || '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
+const LAB_NAME_SYNONYMS = {
+  tsh: 'lab_tsh', thyroidstimulatinghormone: 'lab_tsh',
+  freet4: 'lab_ft4', ft4: 'lab_ft4', t4free: 'lab_ft4', thyroxinefree: 'lab_ft4',
+  freet3: 'lab_ft3', ft3: 'lab_ft3', t3free: 'lab_ft3',
+  reverset3: 'lab_rt3', rt3: 'lab_rt3', t3reverse: 'lab_rt3',
+  tpoantibodies: 'lab_tpo', tpoab: 'lab_tpo', thyroidperoxidaseantibodies: 'lab_tpo', antitpo: 'lab_tpo',
+  thyroglobulinantibodies: 'lab_tg', tgab: 'lab_tg', antithyroglobulin: 'lab_tg',
+  vitamind: 'lab_vitd', vitamind25hydroxy: 'lab_vitd', d25hydroxyvitamin: 'lab_vitd', the25hydroxyvitamind: 'lab_vitd', vitamind25oh: 'lab_vitd',
+  vitaminb12: 'lab_b12', b12: 'lab_b12', cobalamin: 'lab_b12',
+  ferritin: 'lab_fer',
+};
+function matchLabMarker(name) {
+  const n = normMarkerName(name);
+  if (LAB_NAME_SYNONYMS[n] && labMarker(LAB_NAME_SYNONYMS[n])) return labMarker(LAB_NAME_SYNONYMS[n]);
+  return labMarkers().find(m => normMarkerName(m.label) === n) || null;
+}
+function parseLabNumber(s) { const m = String(s == null ? '' : s).match(/-?\d+(\.\d+)?/); return m ? Number(m[0]) : null; }
+function parseRangeBound(s) { const v = parseLabNumber(s); return v == null ? '' : v; }
+
 function renderLabs(root) {
   root.innerHTML = '';
   const intro = document.createElement('div'); intro.className = 'card';
@@ -2656,26 +2702,77 @@ function renderLabs(root) {
       });
     }
     fileInput.onchange = () => { [...fileInput.files].forEach(f => pendingFiles.push(f)); fileInput.value = ''; refreshChips(); };
-    fWrap.appendChild(fileInput); fWrap.appendChild(fileChips); box.appendChild(fWrap);
+    fWrap.appendChild(fileInput); fWrap.appendChild(fileChips);
+    // AI auto-read: pull values + ranges straight off the uploaded file.
+    const autoBtn = document.createElement('button'); autoBtn.type = 'button'; autoBtn.className = 'btn btn--small btn--secondary';
+    autoBtn.textContent = '✨ Auto-read values from file'; autoBtn.style.marginTop = '10px';
+    const autoNote = document.createElement('p'); autoNote.style.cssText = 'font-size:11px; color:var(--text-muted); margin:6px 0 0;';
+    autoNote.textContent = 'Reads a PDF or photo and fills in the values + any new markers. Always double-check before saving.';
+    autoBtn.onclick = async () => {
+      const file = pendingFiles[0];
+      if (!file) { toast('Pick a lab file first (PDF or photo)'); return; }
+      autoBtn.disabled = true; const orig = autoBtn.textContent; autoBtn.textContent = 'Reading… (~10–20s)';
+      try {
+        const parsed = await autoReadLabFile(file);
+        const n = applyParsed(parsed);
+        if (n.filled === 0 && n.added === 0) toast('No lab values found in that file');
+      } catch (e) {
+        console.warn(e);
+        toast('Auto-read unavailable — the AI helper may not be set up yet. You can still type values in.');
+      } finally { autoBtn.disabled = false; autoBtn.textContent = orig; }
+    };
+    fWrap.appendChild(autoBtn); fWrap.appendChild(autoNote);
+    box.appendChild(fWrap);
 
     // values, grouped
     const valInputs = {};
+    const valuesHost = document.createElement('div'); box.appendChild(valuesHost);
+    function addMarkerRow(m, container, highlight) {
+      const row = document.createElement('div'); row.style.cssText = 'display:flex; align-items:center; gap:8px; margin-bottom:6px; padding:2px 4px; border-radius:6px;';
+      if (highlight) row.style.background = 'var(--accent-soft, #e7efe9)';
+      const lbl = document.createElement('label'); lbl.style.cssText = 'flex:1; font-size:13px;';
+      const rangeTxt = rangeHint(m);
+      lbl.innerHTML = `${escapeHtml(m.label)} <span style="color:var(--text-muted); font-size:11px;">${m.unit ? escapeHtml(m.unit) : ''}${rangeTxt ? ' · ' + rangeTxt : ''}</span>`;
+      const inp = document.createElement('input'); inp.type = 'number'; inp.step = 'any'; inp.className = 'number-input'; inp.style.width = '110px';
+      inp.value = (rec.values && rec.values[m.id] != null) ? rec.values[m.id] : '';
+      valInputs[m.id] = inp;
+      row.appendChild(lbl); row.appendChild(inp); container.appendChild(row);
+      return row;
+    }
     LAB_GROUPS.forEach(group => {
       const markers = labMarkers().filter(m => (m.group || 'Other') === group);
       if (!markers.length) return;
       const gh = document.createElement('div'); gh.style.cssText = 'font-size:12px; font-weight:600; color:var(--text-dim); text-transform:uppercase; letter-spacing:.04em; margin:14px 0 6px;';
-      gh.textContent = group; box.appendChild(gh);
-      markers.forEach(m => {
-        const row = document.createElement('div'); row.style.cssText = 'display:flex; align-items:center; gap:8px; margin-bottom:6px;';
-        const lbl = document.createElement('label'); lbl.style.cssText = 'flex:1; font-size:13px;';
-        const rangeTxt = rangeHint(m);
-        lbl.innerHTML = `${escapeHtml(m.label)} <span style="color:var(--text-muted); font-size:11px;">${m.unit ? escapeHtml(m.unit) : ''}${rangeTxt ? ' · ' + rangeTxt : ''}</span>`;
-        const inp = document.createElement('input'); inp.type = 'number'; inp.step = 'any'; inp.className = 'number-input'; inp.style.width = '110px';
-        inp.value = (rec.values && rec.values[m.id] != null) ? rec.values[m.id] : '';
-        valInputs[m.id] = inp;
-        row.appendChild(lbl); row.appendChild(inp); box.appendChild(row);
-      });
+      gh.textContent = group; valuesHost.appendChild(gh);
+      markers.forEach(m => addMarkerRow(m, valuesHost, false));
     });
+    // Apply AI-parsed results: set date, fill matched markers, create new ones.
+    function applyParsed(parsed) {
+      let filled = 0, added = 0;
+      if (parsed.draw_date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.draw_date)) { rec.date = parsed.draw_date; dateInput.value = parsed.draw_date; }
+      (parsed.markers || []).forEach(mk => {
+        if (!mk || !mk.name) return;
+        const num = parseLabNumber(mk.value);
+        if (num === null) return; // skip non-numeric results (e.g. "Negative") — can't chart
+        let marker = matchLabMarker(mk.name);
+        if (!marker) {
+          marker = {
+            id: 'lab_custom_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
+            label: String(mk.name).slice(0, 60), unit: mk.unit || '',
+            low: parseRangeBound(mk.low), high: parseRangeBound(mk.high), group: 'Other',
+          };
+          labMarkers().push(marker);
+          addMarkerRow(marker, valuesHost, true);
+          added++;
+        }
+        if (valInputs[marker.id]) valInputs[marker.id].value = num;
+        rec.values[marker.id] = num;
+        filled++;
+      });
+      if (added) queuePush(); // persist newly created markers
+      if (filled || added) toast(`Auto-filled ${filled} value${filled === 1 ? '' : 's'}${added ? `, added ${added} new marker${added === 1 ? '' : 's'}` : ''} — review & Save`);
+      return { filled, added };
+    }
 
     // notes
     const nWrap = document.createElement('div'); nWrap.style.margin = '14px 0 0';
