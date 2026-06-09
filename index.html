@@ -721,6 +721,7 @@
     <button class="drawer__item" data-page="home">Home</button>
     <button class="drawer__item" data-page="today">Today's Log</button>
     <button class="drawer__item" data-page="past">Past Logs</button>
+    <button class="drawer__item" data-page="labs">Labs &amp; Bloodwork</button>
     <button class="drawer__item" data-page="reports">Reporting</button>
     <button class="drawer__item" data-page="export">Export Folder <span class="drawer__badge" id="exportBadge"></span></button>
     <button class="drawer__item" data-page="patterns">Pattern Recommendations</button>
@@ -761,6 +762,10 @@ let state = {
     goals: [],            // { id, text, metric, target }
     normalRanges: {},     // metricId -> { min, max } (configured later in Settings)
     customFields: [],     // user-defined fields: { id, label, type, section, required, chart }
+    labMarkers: null,     // lab markers (seeded from DEFAULT_LAB_MARKERS on first use)
+    labs: [],             // lab records: { id, date, values:{markerId:num}, files:[{name,path,type,size}], notes }
+    medications: [],      // current schedule: { id, name, dose, unit }
+    medEvents: [],        // change history: { id, date, type:'start'|'dose'|'stop', medName, dose, unit, note }
   },
   cycle: { active: false, startedOn: null },  // tracked separately in settings
   metric: { week: 'sleep', month: 'sleep' },
@@ -814,10 +819,72 @@ function customMetrics() {
     .filter(f => NUMERIC_CUSTOM_TYPES.has(f.type))
     .map(f => ({ id: f.id, label: f.label, chart: f.chart || (f.type === 'number' ? 'bar' : 'line') }));
 }
-function allMetrics() { return METRICS.concat(customMetrics()); }
+function allMetrics() { return METRICS.concat(customMetrics()).concat(labMetrics()); }
 // The full required set = built-in required fields + any custom field flagged required.
 function allRequiredFields() {
   return REQUIRED_FIELDS.concat(requiredCustomFields().map(f => ({ key: f.id, label: f.label })));
+}
+
+// =============== LAB RESULTS & MEDICATIONS ===============
+// Pre-loaded markers with typical adult reference ranges (all editable in the app).
+const DEFAULT_LAB_MARKERS = [
+  { id:'lab_tsh',  label:'TSH',                      unit:'mIU/L', low:0.4, high:4.0,  group:'Thyroid' },
+  { id:'lab_ft4',  label:'Free T4',                  unit:'ng/dL', low:0.8, high:1.8,  group:'Thyroid' },
+  { id:'lab_ft3',  label:'Free T3',                  unit:'pg/mL', low:2.3, high:4.2,  group:'Thyroid' },
+  { id:'lab_rt3',  label:'Reverse T3',               unit:'ng/dL', low:9.2, high:24.1, group:'Thyroid' },
+  { id:'lab_tpo',  label:'TPO antibodies',           unit:'IU/mL', low:'',  high:34,   group:'Antibodies' },
+  { id:'lab_tg',   label:'Thyroglobulin antibodies', unit:'IU/mL', low:'',  high:1,    group:'Antibodies' },
+  { id:'lab_vitd', label:'Vitamin D',                unit:'ng/mL', low:30,  high:100,  group:'Vitamins & minerals' },
+  { id:'lab_b12',  label:'Vitamin B12',              unit:'pg/mL', low:200, high:900,  group:'Vitamins & minerals' },
+  { id:'lab_fer',  label:'Ferritin',                 unit:'ng/mL', low:15,  high:150,  group:'Vitamins & minerals' },
+];
+const LAB_GROUPS = ['Thyroid', 'Antibodies', 'Vitamins & minerals', 'Other'];
+
+function labMarkers() {
+  if (!state.settings.labMarkers) state.settings.labMarkers = DEFAULT_LAB_MARKERS.map(m => ({ ...m }));
+  return state.settings.labMarkers;
+}
+function labMarker(id) { return labMarkers().find(m => m.id === id); }
+function labRecords() { return state.settings.labs || (state.settings.labs = []); }
+function isLabMetric(id) { return !!labMarker(id); }
+// Lab markers are chartable metrics, just like custom numeric fields.
+function labMetrics() {
+  return labMarkers().map(m => ({ id: m.id, label: m.label + (m.unit ? ' (' + m.unit + ')' : ''), chart: 'line', isLab: true }));
+}
+// Sparse series for a marker (only the dates with a recorded value).
+function labSeriesFor(markerId) {
+  return labRecords()
+    .filter(r => r.values && r.values[markerId] !== undefined && r.values[markerId] !== '' && r.values[markerId] !== null)
+    .map(r => ({ date: r.date, value: Number(r.values[markerId]) }))
+    .filter(p => !isNaN(p.value))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+// Normal range for any metric: lab markers carry their own low/high; others use settings.normalRanges.
+function rangeForMetric(id) {
+  const m = labMarker(id);
+  if (m) {
+    const min = (m.low === '' || m.low == null) ? '' : m.low;
+    const max = (m.high === '' || m.high == null) ? '' : m.high;
+    return (min === '' && max === '') ? null : { min, max };
+  }
+  return (state.settings.normalRanges && state.settings.normalRanges[id]) || null;
+}
+
+function medications() { return state.settings.medications || (state.settings.medications = []); }
+function medEvents() { return state.settings.medEvents || (state.settings.medEvents = []); }
+function medEventsInRange(fromKey, toKey) {
+  return medEvents().filter(e => e.date >= fromKey && e.date <= toKey).sort((a, b) => a.date.localeCompare(b.date));
+}
+const MED_EVENT_TYPES = [
+  { type:'start', label:'Started',     verb:'Started' },
+  { type:'dose',  label:'Dose change', verb:'Changed to' },
+  { type:'stop',  label:'Stopped',     verb:'Stopped' },
+];
+function medEventText(e) {
+  const t = MED_EVENT_TYPES.find(x => x.type === e.type) || { verb: e.type };
+  const dosePart = (e.type !== 'stop' && e.dose) ? ` ${e.dose}${e.unit || ''}` : '';
+  if (e.type === 'dose') return `${e.medName} → ${e.dose || ''}${e.unit || ''}`;
+  return `${t.verb} ${e.medName}${dosePart}`;
 }
 
 // =============== HELPERS ===============
@@ -1086,7 +1153,7 @@ function closeDrawer() { $('#drawer').classList.remove('open'); $('#drawerOverla
 function go(page) {
   state.page = page;
   $$('.drawer__item').forEach(el => el.classList.toggle('active', el.dataset.page === page));
-  const titles = { home: 'Home', today: "Today's Log", past: 'Past Logs',
+  const titles = { home: 'Home', today: "Today's Log", past: 'Past Logs', labs: 'Labs & Bloodwork',
     reports: 'Reporting', patterns: 'Patterns', settings: 'Settings' };
   $('#pageTitle').textContent = titles[page] || '';
   const main = $('#main');
@@ -1094,6 +1161,7 @@ function go(page) {
   if (page === 'home') renderHome(main);
   else if (page === 'today') renderToday(main, state.today);
   else if (page === 'past') renderPast(main);
+  else if (page === 'labs') renderLabs(main);
   else if (page === 'reports') renderReports(main);
   else if (page === 'export') renderExportFolder(main);
   else if (page === 'patterns') renderPlaceholder(main, 'Pattern Recommendations', 'AI-ish insights coming later. This will surface "your flares correlate with X" once you have enough data.');
@@ -1248,6 +1316,7 @@ function drawChart(host, metricId, range) {
 function formatMetric(v, id) {
   if (id === 'sleep') return v.toFixed(1);
   if (id === 'weight') return v.toFixed(1);
+  if (isLabMetric(id)) return String(Math.round(v * 100) / 100); // labs keep up to 2 decimals
   return Math.round(v);
 }
 function extractMetric(log, id) {
@@ -2174,6 +2243,9 @@ function renderSettings(root) {
   medsCard.appendChild(note);
   root.appendChild(medsCard);
 
+  // Medication schedule + change history (drives chart annotations)
+  renderMedScheduleCard(root);
+
   const goalsCard = document.createElement('div'); goalsCard.className='card';
   goalsCard.innerHTML = `<div class="card__title">Goals</div>`;
   const goalsList = document.createElement('div');
@@ -2331,6 +2403,433 @@ function renderCustomFieldsCard(root) {
   root.appendChild(card);
 }
 
+// Medication schedule + change history. Editing meds auto-logs dated events
+// that show up as flags on your charts.
+function renderMedScheduleCard(root) {
+  const card = document.createElement('div'); card.className = 'card';
+  card.innerHTML = `<div class="card__title">Medication schedule &amp; history</div>
+    <p style="font-size:12px; color:var(--text-muted); margin:0 0 12px;">Add or update your meds here. Every change is logged with a date and shows up as a 💊 flag on your charts — so you can see exactly when a dose change lines up with a lab or symptom shift.</p>`;
+
+  const list = document.createElement('div');
+  const histWrap = document.createElement('div');
+  const formHost = document.createElement('div');
+
+  function refresh() {
+    // current meds
+    list.innerHTML = `<div style="font-size:12px; font-weight:600; color:var(--text-dim); text-transform:uppercase; letter-spacing:.04em; margin:0 0 6px;">Current medications</div>`;
+    const meds = medications();
+    if (!meds.length) {
+      const empty = document.createElement('p'); empty.style.cssText = 'color:var(--text-muted); font-size:13px; margin:0 0 8px;';
+      empty.textContent = 'No medications added yet.';
+      list.appendChild(empty);
+    }
+    meds.forEach(med => {
+      const row = document.createElement('div'); row.className = 'goal-item';
+      const info = document.createElement('div');
+      info.innerHTML = `<div>${escapeHtml(med.name)}</div><div style="font-size:12px; color:var(--text-muted);">${med.dose ? escapeHtml(String(med.dose)) + (med.unit || '') : 'no dose set'}</div>`;
+      const btns = document.createElement('div'); btns.style.cssText = 'display:flex; gap:6px;';
+      const edit = document.createElement('button'); edit.className = 'btn btn--small btn--ghost'; edit.textContent = 'Edit'; edit.onclick = () => openForm(med);
+      const del = document.createElement('button'); del.className = 'btn btn--small btn--ghost'; del.textContent = 'Delete'; del.style.color = 'var(--bad)';
+      del.onclick = () => {
+        if (!confirm(`Remove "${med.name}" from your current meds?`)) return;
+        const i = medications().findIndex(x => x.id === med.id);
+        if (i >= 0) medications().splice(i, 1);
+        if (confirm(`Log "Stopped ${med.name}" on the timeline (shows as a flag on charts)?`)) {
+          medEvents().push({ id: 'me_' + Date.now(), date: state.today, type: 'stop', medName: med.name, dose: '', unit: med.unit || '', note: '' });
+        }
+        queuePush(); refresh();
+      };
+      btns.appendChild(edit); btns.appendChild(del);
+      row.appendChild(info); row.appendChild(btns);
+      list.appendChild(row);
+    });
+
+    // change history
+    histWrap.innerHTML = `<div style="font-size:12px; font-weight:600; color:var(--text-dim); text-transform:uppercase; letter-spacing:.04em; margin:16px 0 6px;">Change history</div>`;
+    const evs = medEvents().slice().sort((a, b) => b.date.localeCompare(a.date));
+    if (!evs.length) {
+      const empty = document.createElement('p'); empty.style.cssText = 'color:var(--text-muted); font-size:13px; margin:0;';
+      empty.textContent = 'No changes logged yet.';
+      histWrap.appendChild(empty);
+    }
+    evs.forEach(e => {
+      const row = document.createElement('div'); row.className = 'goal-item';
+      const info = document.createElement('div');
+      info.innerHTML = `<div style="font-size:13px;">💊 ${escapeHtml(medEventText(e))}</div><div style="font-size:12px; color:var(--text-muted);">${shortDate(e.date)}${e.note ? ' · ' + escapeHtml(e.note) : ''}</div>`;
+      const del = document.createElement('button'); del.className = 'btn btn--small btn--ghost'; del.textContent = 'Delete'; del.style.color = 'var(--bad)';
+      del.onclick = () => {
+        const i = medEvents().findIndex(x => x.id === e.id);
+        if (i >= 0) medEvents().splice(i, 1);
+        queuePush(); refresh();
+      };
+      row.appendChild(info); row.appendChild(del);
+      histWrap.appendChild(row);
+    });
+  }
+
+  function openForm(existing) {
+    formHost.innerHTML = '';
+    const med = existing || { name: '', dose: '', unit: 'mcg' };
+    const box = document.createElement('div'); box.style.cssText = 'margin-top:12px; padding:14px; border:1px solid var(--border,#e3e0d8); border-radius:10px;';
+    const name = document.createElement('input'); name.type = 'text'; name.className = 'text-input'; name.placeholder = 'Medication name (e.g. Levothyroxine)'; name.value = med.name || '';
+    const doseRow = document.createElement('div'); doseRow.style.cssText = 'display:flex; gap:8px; align-items:center; margin-top:8px;';
+    const dose = document.createElement('input'); dose.type = 'number'; dose.step = 'any'; dose.className = 'number-input'; dose.style.width = '110px'; dose.placeholder = 'dose'; dose.value = med.dose || '';
+    const unit = document.createElement('select'); unit.className = 'time-input';
+    ['mcg', 'mg', 'IU', 'mL', ''].forEach(u => { const o = document.createElement('option'); o.value = u; o.textContent = u || '(none)'; if ((med.unit || 'mcg') === u) o.selected = true; unit.appendChild(o); });
+    doseRow.appendChild(dose); doseRow.appendChild(unit);
+    const dateWrap = document.createElement('div'); dateWrap.style.marginTop = '10px';
+    dateWrap.innerHTML = `<label style="font-size:13px; color:var(--text-dim); display:block; margin-bottom:4px;">Effective date ${existing ? '(of this change)' : '(when you started it)'}</label>`;
+    const dateInput = document.createElement('input'); dateInput.type = 'date'; dateInput.className = 'time-input'; dateInput.style.width = '100%'; dateInput.value = state.today;
+    dateWrap.appendChild(dateInput);
+    const logWrap = document.createElement('label'); logWrap.style.cssText = 'display:flex; align-items:center; gap:8px; margin-top:12px; font-size:13px; cursor:pointer;';
+    const logCb = document.createElement('input'); logCb.type = 'checkbox'; logCb.checked = true;
+    logWrap.appendChild(logCb); logWrap.appendChild(document.createTextNode(existing ? 'Log this as a change on my charts' : 'Mark the start on my charts'));
+
+    const btnRow = document.createElement('div'); btnRow.style.cssText = 'display:flex; gap:8px; margin-top:14px;';
+    const save = document.createElement('button'); save.className = 'btn btn--small'; save.textContent = existing ? 'Save changes' : 'Add medication';
+    const cancel = document.createElement('button'); cancel.className = 'btn btn--small btn--ghost'; cancel.textContent = 'Cancel';
+    cancel.onclick = () => { formHost.innerHTML = ''; };
+    save.onclick = () => {
+      const nm = name.value.trim(); if (!nm) { name.focus(); return; }
+      const newDose = dose.value.trim() === '' ? '' : Number(dose.value);
+      const newUnit = unit.value;
+      if (existing) {
+        existing.name = nm; existing.dose = newDose; existing.unit = newUnit;
+        if (logCb.checked) {
+          medEvents().push({ id: 'me_' + Date.now(), date: dateInput.value, type: 'dose', medName: nm, dose: newDose, unit: newUnit, note: '' });
+        }
+      } else {
+        const id = 'med_' + Date.now();
+        medications().push({ id, name: nm, dose: newDose, unit: newUnit });
+        if (logCb.checked) {
+          medEvents().push({ id: 'me_' + Date.now(), date: dateInput.value, type: 'start', medName: nm, dose: newDose, unit: newUnit, note: '' });
+        }
+      }
+      queuePush(); formHost.innerHTML = ''; refresh();
+      toast(existing ? 'Medication updated' : 'Medication added');
+    };
+    btnRow.appendChild(save); btnRow.appendChild(cancel);
+    box.appendChild(name); box.appendChild(doseRow); box.appendChild(dateWrap); box.appendChild(logWrap); box.appendChild(btnRow);
+    formHost.appendChild(box); name.focus();
+  }
+
+  refresh();
+  card.appendChild(list);
+  const addBtn = document.createElement('button'); addBtn.className = 'btn btn--small'; addBtn.textContent = '+ Add medication'; addBtn.style.marginTop = '12px';
+  addBtn.onclick = () => openForm(null);
+  card.appendChild(addBtn);
+  card.appendChild(histWrap);
+  card.appendChild(formHost);
+  root.appendChild(card);
+}
+
+// =============== LABS & BLOODWORK ===============
+const LABS_BUCKET = 'labs';
+
+async function uploadLabFile(file) {
+  if (!state.supabase) throw new Error('no-storage');
+  const safe = file.name.replace(/[^\w.\-]+/g, '_').slice(-80);
+  const path = `${Date.now()}-${Math.floor(Math.random() * 1e6)}-${safe}`;
+  const { error } = await state.supabase.storage.from(LABS_BUCKET).upload(path, file, { upsert: false });
+  if (error) throw error;
+  return { name: file.name, path, type: file.type || '', size: file.size || 0 };
+}
+async function openLabFile(f) {
+  if (!state.supabase) { toast('File storage not set up yet'); return; }
+  try {
+    const { data, error } = await state.supabase.storage.from(LABS_BUCKET).createSignedUrl(f.path, 3600);
+    if (error) throw error;
+    window.open(data.signedUrl, '_blank');
+  } catch (e) { console.warn(e); toast('Could not open file'); }
+}
+
+function renderLabs(root) {
+  root.innerHTML = '';
+  const intro = document.createElement('div'); intro.className = 'card';
+  intro.innerHTML = `<div class="card__title">Labs &amp; Bloodwork</div>
+    <p style="font-size:13px; color:var(--text-dim); margin:0;">Upload your lab reports and log the key numbers. Your values trend over time in Reporting — with a shaded normal-range band and your medication changes marked right on the chart.</p>`;
+  root.appendChild(intro);
+
+  const formHost = document.createElement('div');
+  const listCard = document.createElement('div'); listCard.className = 'card';
+
+  function refreshList() {
+    listCard.innerHTML = `<div class="card__title">Lab history</div>`;
+    const recs = labRecords().slice().sort((a, b) => b.date.localeCompare(a.date));
+    if (recs.length === 0) {
+      const empty = document.createElement('p'); empty.style.cssText = 'color:var(--text-muted); font-size:13px; margin:0;';
+      empty.textContent = 'No lab results yet. Add your first one above.';
+      listCard.appendChild(empty);
+      return;
+    }
+    recs.forEach(rec => {
+      const item = document.createElement('div'); item.className = 'goal-item'; item.style.cssText = 'align-items:flex-start; flex-direction:column; gap:8px;';
+      const valCount = Object.keys(rec.values || {}).filter(k => rec.values[k] !== '' && rec.values[k] != null).length;
+      const head = document.createElement('div'); head.style.cssText = 'display:flex; justify-content:space-between; width:100%; align-items:center;';
+      head.innerHTML = `<div><div style="font-weight:600;">${prettyDate(rec.date)}</div>
+        <div style="font-size:12px; color:var(--text-muted);">${valCount} value${valCount === 1 ? '' : 's'}${(rec.files && rec.files.length) ? ' · ' + rec.files.length + ' file' + (rec.files.length === 1 ? '' : 's') : ''}</div></div>`;
+      const btns = document.createElement('div'); btns.style.cssText = 'display:flex; gap:6px;';
+      const edit = document.createElement('button'); edit.className = 'btn btn--small btn--ghost'; edit.textContent = 'Edit';
+      edit.onclick = () => { openForm(rec); window.scrollTo(0, 0); };
+      const del = document.createElement('button'); del.className = 'btn btn--small btn--ghost'; del.textContent = 'Delete'; del.style.color = 'var(--bad)';
+      del.onclick = () => {
+        if (!confirm(`Delete the lab result from ${prettyDate(rec.date)}? This can't be undone.`)) return;
+        const i = labRecords().findIndex(r => r.id === rec.id);
+        if (i >= 0) labRecords().splice(i, 1);
+        queuePush(); refreshList();
+      };
+      btns.appendChild(edit); btns.appendChild(del);
+      head.appendChild(btns);
+      item.appendChild(head);
+      // value chips
+      const vals = labMarkers().filter(m => rec.values && rec.values[m.id] !== '' && rec.values[m.id] != null);
+      if (vals.length) {
+        const chips = document.createElement('div'); chips.style.cssText = 'display:flex; flex-wrap:wrap; gap:6px;';
+        vals.forEach(m => {
+          const v = Number(rec.values[m.id]);
+          const out = isOutOfRange(v, m.id);
+          const chip = document.createElement('span');
+          chip.style.cssText = `font-size:12px; padding:3px 8px; border-radius:20px; background:${out ? 'rgba(184,114,145,0.15)' : 'var(--surface-2,#f0ede5)'}; color:${out ? '#9a5570' : 'var(--text-dim)'};`;
+          chip.textContent = `${m.label}: ${rec.values[m.id]}${m.unit ? ' ' + m.unit : ''}${out ? ' ⚠' : ''}`;
+          chips.appendChild(chip);
+        });
+        item.appendChild(chips);
+      }
+      // file links
+      if (rec.files && rec.files.length) {
+        const frow = document.createElement('div'); frow.style.cssText = 'display:flex; flex-wrap:wrap; gap:6px;';
+        rec.files.forEach(f => {
+          const a = document.createElement('button'); a.className = 'btn btn--small btn--ghost';
+          a.textContent = '📄 ' + f.name;
+          a.onclick = () => openLabFile(f);
+          frow.appendChild(a);
+        });
+        item.appendChild(frow);
+      }
+      if (rec.notes) {
+        const n = document.createElement('div'); n.style.cssText = 'font-size:12px; color:var(--text-muted);';
+        n.textContent = rec.notes; item.appendChild(n);
+      }
+      listCard.appendChild(item);
+    });
+  }
+
+  function openForm(existing) {
+    formHost.innerHTML = '';
+    // working copy
+    const rec = existing
+      ? { id: existing.id, date: existing.date, values: { ...(existing.values || {}) }, files: (existing.files || []).slice(), notes: existing.notes || '' }
+      : { id: 'lab_rec_' + Date.now(), date: state.today, values: {}, files: [], notes: '' };
+    const pendingFiles = []; // File objects to upload on save
+
+    const box = document.createElement('div'); box.className = 'card';
+    box.innerHTML = `<div class="card__title">${existing ? 'Edit lab result' : 'Add a lab result'}</div>`;
+
+    // date
+    const dWrap = document.createElement('div'); dWrap.style.marginBottom = '12px';
+    dWrap.innerHTML = `<label style="font-size:13px; color:var(--text-dim); display:block; margin-bottom:4px;">Date of draw</label>`;
+    const dateInput = document.createElement('input'); dateInput.type = 'date'; dateInput.className = 'time-input'; dateInput.style.width = '100%';
+    dateInput.value = rec.date; dateInput.onchange = () => { rec.date = dateInput.value; };
+    dWrap.appendChild(dateInput); box.appendChild(dWrap);
+
+    // files
+    const fWrap = document.createElement('div'); fWrap.style.marginBottom = '12px';
+    fWrap.innerHTML = `<label style="font-size:13px; color:var(--text-dim); display:block; margin-bottom:4px;">Lab report files (PDF, screenshot, photo)</label>`;
+    const fileInput = document.createElement('input'); fileInput.type = 'file'; fileInput.multiple = true;
+    fileInput.accept = '.pdf,image/*'; fileInput.className = 'text-input';
+    const fileChips = document.createElement('div'); fileChips.style.cssText = 'display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;';
+    function refreshChips() {
+      fileChips.innerHTML = '';
+      rec.files.forEach((f, i) => {
+        const chip = document.createElement('span'); chip.style.cssText = 'font-size:12px; padding:3px 8px; border-radius:20px; background:var(--surface-2,#f0ede5); display:inline-flex; gap:6px; align-items:center;';
+        chip.textContent = '📄 ' + f.name;
+        const x = document.createElement('span'); x.textContent = '✕'; x.style.cssText = 'cursor:pointer; color:var(--bad);';
+        x.onclick = () => { rec.files.splice(i, 1); refreshChips(); };
+        chip.appendChild(x); fileChips.appendChild(chip);
+      });
+      pendingFiles.forEach((f, i) => {
+        const chip = document.createElement('span'); chip.style.cssText = 'font-size:12px; padding:3px 8px; border-radius:20px; background:var(--accent-soft,#e7efe9); display:inline-flex; gap:6px; align-items:center;';
+        chip.textContent = '⬆ ' + f.name + ' (new)';
+        const x = document.createElement('span'); x.textContent = '✕'; x.style.cssText = 'cursor:pointer; color:var(--bad);';
+        x.onclick = () => { pendingFiles.splice(i, 1); refreshChips(); };
+        chip.appendChild(x); fileChips.appendChild(chip);
+      });
+    }
+    fileInput.onchange = () => { [...fileInput.files].forEach(f => pendingFiles.push(f)); fileInput.value = ''; refreshChips(); };
+    fWrap.appendChild(fileInput); fWrap.appendChild(fileChips); box.appendChild(fWrap);
+
+    // values, grouped
+    const valInputs = {};
+    LAB_GROUPS.forEach(group => {
+      const markers = labMarkers().filter(m => (m.group || 'Other') === group);
+      if (!markers.length) return;
+      const gh = document.createElement('div'); gh.style.cssText = 'font-size:12px; font-weight:600; color:var(--text-dim); text-transform:uppercase; letter-spacing:.04em; margin:14px 0 6px;';
+      gh.textContent = group; box.appendChild(gh);
+      markers.forEach(m => {
+        const row = document.createElement('div'); row.style.cssText = 'display:flex; align-items:center; gap:8px; margin-bottom:6px;';
+        const lbl = document.createElement('label'); lbl.style.cssText = 'flex:1; font-size:13px;';
+        const rangeTxt = rangeHint(m);
+        lbl.innerHTML = `${escapeHtml(m.label)} <span style="color:var(--text-muted); font-size:11px;">${m.unit ? escapeHtml(m.unit) : ''}${rangeTxt ? ' · ' + rangeTxt : ''}</span>`;
+        const inp = document.createElement('input'); inp.type = 'number'; inp.step = 'any'; inp.className = 'number-input'; inp.style.width = '110px';
+        inp.value = (rec.values && rec.values[m.id] != null) ? rec.values[m.id] : '';
+        valInputs[m.id] = inp;
+        row.appendChild(lbl); row.appendChild(inp); box.appendChild(row);
+      });
+    });
+
+    // notes
+    const nWrap = document.createElement('div'); nWrap.style.margin = '14px 0 0';
+    nWrap.innerHTML = `<label style="font-size:13px; color:var(--text-dim); display:block; margin-bottom:4px;">Notes (optional)</label>`;
+    const notes = document.createElement('textarea'); notes.className = 'text-input'; notes.rows = 2; notes.value = rec.notes || '';
+    notes.placeholder = 'e.g. fasting draw, new lab, doctor follow-up…';
+    nWrap.appendChild(notes); box.appendChild(nWrap);
+
+    // actions
+    const btnRow = document.createElement('div'); btnRow.style.cssText = 'display:flex; gap:8px; margin-top:16px;';
+    const save = document.createElement('button'); save.className = 'btn'; save.textContent = existing ? 'Save changes' : 'Add result';
+    const cancel = document.createElement('button'); cancel.className = 'btn btn--ghost'; cancel.textContent = 'Cancel';
+    cancel.onclick = () => { formHost.innerHTML = ''; };
+    save.onclick = async () => {
+      // collect values
+      rec.values = {};
+      Object.keys(valInputs).forEach(id => { const v = valInputs[id].value.trim(); if (v !== '') rec.values[id] = Number(v); });
+      rec.notes = notes.value.trim();
+      if (!rec.date) { toast('Pick a date'); return; }
+      if (Object.keys(rec.values).length === 0 && rec.files.length === 0 && pendingFiles.length === 0) {
+        toast('Add at least one value or file'); return;
+      }
+      save.disabled = true; cancel.disabled = true;
+      // upload pending files
+      if (pendingFiles.length) {
+        save.textContent = 'Uploading…';
+        for (const file of pendingFiles) {
+          try { const meta = await uploadLabFile(file); rec.files.push(meta); }
+          catch (e) {
+            console.warn('upload failed', e);
+            save.disabled = false; cancel.disabled = false; save.textContent = existing ? 'Save changes' : 'Add result';
+            toast(e.message === 'no-storage' ? 'File storage not set up yet — values saved, file skipped' : 'File upload failed — try again');
+            if (e.message !== 'no-storage') return;
+          }
+        }
+      }
+      // commit
+      const i = labRecords().findIndex(r => r.id === rec.id);
+      if (i >= 0) labRecords()[i] = rec; else labRecords().push(rec);
+      queuePush();
+      formHost.innerHTML = '';
+      refreshList();
+      toast(existing ? 'Lab result updated' : 'Lab result added');
+    };
+    btnRow.appendChild(save); btnRow.appendChild(cancel);
+    box.appendChild(btnRow);
+    formHost.appendChild(box);
+    refreshChips();
+  }
+
+  const addBtn = document.createElement('button'); addBtn.className = 'btn'; addBtn.textContent = '+ Add lab result';
+  addBtn.style.marginBottom = '14px';
+  addBtn.onclick = () => openForm(null);
+  root.appendChild(addBtn);
+  root.appendChild(formHost);
+  refreshList();
+  root.appendChild(listCard);
+
+  // marker manager
+  root.appendChild(renderMarkerManager());
+}
+
+function rangeHint(m) {
+  const lo = (m.low === '' || m.low == null) ? null : m.low;
+  const hi = (m.high === '' || m.high == null) ? null : m.high;
+  if (lo != null && hi != null) return `${lo}–${hi}`;
+  if (hi != null) return `< ${hi}`;
+  if (lo != null) return `> ${lo}`;
+  return '';
+}
+
+// Editable list of markers + their normal ranges; add custom markers.
+function renderMarkerManager() {
+  const card = document.createElement('div'); card.className = 'card';
+  card.innerHTML = `<div class="card__title">Markers &amp; normal ranges</div>
+    <p style="font-size:12px; color:var(--text-muted); margin:0 0 12px;">Edit the normal range for any marker (your lab sheet may differ), or add your own marker to track.</p>`;
+  const list = document.createElement('div');
+  const formHost = document.createElement('div');
+
+  function refresh() {
+    list.innerHTML = '';
+    LAB_GROUPS.forEach(group => {
+      const markers = labMarkers().filter(m => (m.group || 'Other') === group);
+      if (!markers.length) return;
+      const gh = document.createElement('div'); gh.style.cssText = 'font-size:12px; font-weight:600; color:var(--text-dim); text-transform:uppercase; letter-spacing:.04em; margin:10px 0 6px;';
+      gh.textContent = group; list.appendChild(gh);
+      markers.forEach(m => {
+        const row = document.createElement('div'); row.style.cssText = 'display:flex; align-items:center; gap:8px; margin-bottom:6px; flex-wrap:wrap;';
+        const name = document.createElement('div'); name.style.cssText = 'flex:1; min-width:120px; font-size:13px;';
+        name.innerHTML = `${escapeHtml(m.label)} <span style="color:var(--text-muted); font-size:11px;">${m.unit ? escapeHtml(m.unit) : ''}</span>`;
+        const lo = document.createElement('input'); lo.type = 'number'; lo.step = 'any'; lo.className = 'number-input'; lo.style.width = '70px'; lo.placeholder = 'low';
+        lo.value = (m.low === '' || m.low == null) ? '' : m.low;
+        const dash = document.createElement('span'); dash.textContent = '–'; dash.style.color = 'var(--text-muted)';
+        const hi = document.createElement('input'); hi.type = 'number'; hi.step = 'any'; hi.className = 'number-input'; hi.style.width = '70px'; hi.placeholder = 'high';
+        hi.value = (m.high === '' || m.high == null) ? '' : m.high;
+        const commit = () => {
+          m.low = lo.value.trim() === '' ? '' : Number(lo.value);
+          m.high = hi.value.trim() === '' ? '' : Number(hi.value);
+          queuePush();
+        };
+        lo.onchange = commit; hi.onchange = commit;
+        const del = document.createElement('button'); del.className = 'btn btn--small btn--ghost'; del.textContent = '✕'; del.style.color = 'var(--bad)';
+        del.title = 'Remove marker';
+        del.onclick = () => {
+          if (!confirm(`Remove "${m.label}" from your markers? Any values you've already logged are kept in their records.`)) return;
+          const i = labMarkers().findIndex(x => x.id === m.id);
+          if (i >= 0) labMarkers().splice(i, 1);
+          queuePush(); refresh();
+        };
+        row.appendChild(name); row.appendChild(lo); row.appendChild(dash); row.appendChild(hi); row.appendChild(del);
+        list.appendChild(row);
+      });
+    });
+  }
+
+  function openAddForm() {
+    formHost.innerHTML = '';
+    const box = document.createElement('div'); box.style.cssText = 'margin-top:12px; padding:14px; border:1px solid var(--border,#e3e0d8); border-radius:10px;';
+    const name = document.createElement('input'); name.type = 'text'; name.className = 'text-input'; name.placeholder = 'Marker name (e.g. Cortisol, A1C)';
+    const unit = document.createElement('input'); unit.type = 'text'; unit.className = 'text-input'; unit.placeholder = 'Unit (e.g. ng/mL)'; unit.style.marginTop = '8px';
+    const ranges = document.createElement('div'); ranges.style.cssText = 'display:flex; gap:8px; align-items:center; margin-top:8px;';
+    const lo = document.createElement('input'); lo.type = 'number'; lo.step = 'any'; lo.className = 'number-input'; lo.style.width = '80px'; lo.placeholder = 'low';
+    const hi = document.createElement('input'); hi.type = 'number'; hi.step = 'any'; hi.className = 'number-input'; hi.style.width = '80px'; hi.placeholder = 'high';
+    ranges.appendChild(document.createTextNode('Normal range:')); ranges.appendChild(lo); ranges.appendChild(document.createTextNode('–')); ranges.appendChild(hi);
+    const grpSel = document.createElement('select'); grpSel.className = 'time-input'; grpSel.style.cssText = 'width:100%; margin-top:8px;';
+    LAB_GROUPS.forEach(g => { const o = document.createElement('option'); o.value = g; o.textContent = g; if (g === 'Other') o.selected = true; grpSel.appendChild(o); });
+    const btnRow = document.createElement('div'); btnRow.style.cssText = 'display:flex; gap:8px; margin-top:12px;';
+    const add = document.createElement('button'); add.className = 'btn btn--small'; add.textContent = 'Add marker';
+    const cancel = document.createElement('button'); cancel.className = 'btn btn--small btn--ghost'; cancel.textContent = 'Cancel';
+    cancel.onclick = () => { formHost.innerHTML = ''; };
+    add.onclick = () => {
+      const label = name.value.trim(); if (!label) { name.focus(); return; }
+      labMarkers().push({
+        id: 'lab_custom_' + Date.now(), label, unit: unit.value.trim(),
+        low: lo.value.trim() === '' ? '' : Number(lo.value),
+        high: hi.value.trim() === '' ? '' : Number(hi.value),
+        group: grpSel.value,
+      });
+      queuePush(); formHost.innerHTML = ''; refresh(); toast('Marker added');
+    };
+    btnRow.appendChild(add); btnRow.appendChild(cancel);
+    box.appendChild(name); box.appendChild(unit); box.appendChild(ranges); box.appendChild(grpSel); box.appendChild(btnRow);
+    formHost.appendChild(box); name.focus();
+  }
+
+  refresh();
+  card.appendChild(list);
+  const addBtn = document.createElement('button'); addBtn.className = 'btn btn--small'; addBtn.textContent = '+ Add a marker'; addBtn.style.marginTop = '12px';
+  addBtn.onclick = openAddForm;
+  card.appendChild(addBtn);
+  card.appendChild(formHost);
+  return card;
+}
+
 // =============== REPORTING ===============
 
 const RANGE_PRESETS = [
@@ -2349,7 +2848,7 @@ function rangeDates(rangeId, customFrom, customTo) {
     return { from: parseYmd(customFrom), to: parseYmd(customTo) };
   }
   if (rangeId === 'all') {
-    const dates = Object.keys(state.logs).sort();
+    const dates = Object.keys(state.logs).concat(labRecords().map(r => r.date)).sort();
     if (dates.length === 0) return { from: today, to: today };
     return { from: parseYmd(dates[0]), to: today };
   }
@@ -2361,6 +2860,14 @@ function rangeDates(rangeId, customFrom, customTo) {
 function getSeries(metricId, from, to) {
   // Returns array of { date: 'YYYY-MM-DD', value: number|null }
   const out = [];
+  // Lab markers live in their own records (sparse), not in daily logs.
+  if (isLabMetric(metricId)) {
+    const byDate = {};
+    labSeriesFor(metricId).forEach(p => { byDate[p.date] = p.value; });
+    const d = new Date(from);
+    while (d <= to) { const key = ymd(d); out.push({ date: key, value: key in byDate ? byDate[key] : null }); d.setDate(d.getDate() + 1); }
+    return out;
+  }
   const d = new Date(from);
   while (d <= to) {
     const key = ymd(d);
@@ -2402,7 +2909,7 @@ function computeStats(series, metricId) {
     if (p.value < worstVal) { worstVal = p.value; worstIdx = i; }
   });
   // Range checking
-  const range = state.settings.normalRanges && state.settings.normalRanges[metricId];
+  const range = rangeForMetric(metricId);
   let inR = '—', outR = '—';
   if (range && (range.min !== '' || range.max !== '')) {
     const mn = range.min !== '' ? Number(range.min) : -Infinity;
@@ -2424,7 +2931,7 @@ function computeStats(series, metricId) {
 
 function isOutOfRange(value, metricId) {
   if (value === null || value === undefined || isNaN(value)) return false;
-  const range = state.settings.normalRanges && state.settings.normalRanges[metricId];
+  const range = rangeForMetric(metricId);
   if (!range || (range.min === '' && range.max === '')) return false;
   const mn = range.min !== '' ? Number(range.min) : -Infinity;
   const mx = range.max !== '' ? Number(range.max) : Infinity;
@@ -2614,13 +3121,15 @@ function destroyCharts() {
 
 function drawChartJS(canvas, metricIds, days, seriesList, chartType) {
   destroyCharts();
-  const labels = seriesList[0].map(p => p.date.slice(5)); // MM-DD
+  const fullDates = seriesList[0].map(p => p.date);          // YYYY-MM-DD
+  const labels = fullDates.map(d => d.slice(5));             // MM-DD
   const colors = ['#607d6e', '#b87291', '#c48b5f', '#7B9DA8'];
   const datasets = [];
   metricIds.forEach((mid, idx) => {
     const meta = metricMeta(mid);
     const series = seriesList[idx];
     const ynMetric = isYNMetric(mid);
+    const lab = isLabMetric(mid);
     if (ynMetric && chartType !== 'bar') {
       // Show as scatter on top axis or fill regions — for simplicity render as bar
       datasets.push({
@@ -2637,11 +3146,70 @@ function drawChartJS(canvas, metricIds, days, seriesList, chartType) {
         data: chartType === 'scatter' ? series.map((p, i) => ({ x: seriesList[0][i].value, y: p.value })) : series.map(p => p.value),
         borderColor: colors[idx], backgroundColor: chartType === 'area' ? colors[idx] + '33' : colors[idx],
         borderWidth: 2, pointRadius: 3, fill: chartType === 'area', tension: 0.25,
+        spanGaps: lab,   // lab values are sparse — connect across the empty days
       });
     }
   });
   const scales = { y: { beginAtZero: false, grid: { color: '#e4dfd5' } } };
   if (metricIds.length > 1) scales.y1 = { position: 'right', beginAtZero: false, grid: { drawOnChartArea: false } };
+
+  // Overlay: healthy-zone band for the primary metric + medication-change flags.
+  const band = rangeForMetric(metricIds[0]);
+  const bandVals = band ? {
+    min: (band.min !== '' && band.min != null) ? Number(band.min) : null,
+    max: (band.max !== '' && band.max != null) ? Number(band.max) : null,
+  } : null;
+  const annoEvents = fullDates.length ? medEventsInRange(fullDates[0], fullDates[fullDates.length - 1]).map(e => {
+    let i = fullDates.indexOf(e.date);
+    if (i < 0) i = fullDates.findIndex(d => d >= e.date);   // snap to the next logged day
+    return i >= 0 ? { idx: i, text: medEventText(e) } : null;
+  }).filter(Boolean) : [];
+
+  const overlayPlugin = {
+    id: 'kompassOverlay',
+    beforeDatasetsDraw(chart) {
+      if (!bandVals || (bandVals.min == null && bandVals.max == null)) return;
+      const { ctx, chartArea, scales: sc } = chart;
+      const y = sc.y; if (!y) return;
+      let top = bandVals.max != null ? y.getPixelForValue(bandVals.max) : chartArea.top;
+      let bot = bandVals.min != null ? y.getPixelForValue(bandVals.min) : chartArea.bottom;
+      top = Math.max(top, chartArea.top); bot = Math.min(bot, chartArea.bottom);
+      if (bot <= top) return;
+      ctx.save();
+      ctx.fillStyle = 'rgba(96,125,110,0.10)';
+      ctx.fillRect(chartArea.left, top, chartArea.right - chartArea.left, bot - top);
+      ctx.strokeStyle = 'rgba(96,125,110,0.35)'; ctx.setLineDash([4, 3]); ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(chartArea.left, top); ctx.lineTo(chartArea.right, top);
+      ctx.moveTo(chartArea.left, bot); ctx.lineTo(chartArea.right, bot);
+      ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle = 'rgba(80,105,90,0.85)'; ctx.font = '10px sans-serif'; ctx.textAlign = 'left';
+      ctx.fillText('Normal range', chartArea.left + 4, top + 11);
+      ctx.restore();
+    },
+    afterDatasetsDraw(chart) {
+      if (!annoEvents.length) return;
+      const { ctx, chartArea, scales: sc } = chart;
+      const x = sc.x; if (!x) return;
+      ctx.save();
+      annoEvents.forEach(a => {
+        const px = x.getPixelForValue(a.idx);
+        if (px < chartArea.left - 1 || px > chartArea.right + 1) return;
+        ctx.strokeStyle = 'rgba(184,114,145,0.75)'; ctx.setLineDash([5, 3]); ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(px, chartArea.top); ctx.lineTo(px, chartArea.bottom); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.save();
+        ctx.translate(px + 3, chartArea.top + 4);
+        ctx.rotate(Math.PI / 2);
+        ctx.fillStyle = '#9a5570'; ctx.font = '9px sans-serif';
+        ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        ctx.fillText('💊 ' + a.text, 0, 0);
+        ctx.restore();
+      });
+      ctx.restore();
+    },
+  };
+
   const chart = new Chart(canvas, {
     type: datasets[0]?.type || 'line',
     data: { labels, datasets },
@@ -2651,6 +3219,7 @@ function drawChartJS(canvas, metricIds, days, seriesList, chartType) {
       plugins: { legend: { display: metricIds.length > 1, labels: { font: { size: 11 } } } },
       scales,
     },
+    plugins: [overlayPlugin],
   });
   _activeCharts.push(chart);
   return chart;
