@@ -23,21 +23,27 @@ const CORS: Record<string, string> = {
 // model can echo values verbatim (e.g. "<0.1", "Negative"); the app parses
 // numbers client-side.
 const SHAPE = `{
-  "draw_date": "YYYY-MM-DD or empty string",
-  "markers": [
-    { "name": "short test name", "value": "as printed", "unit": "e.g. mIU/L or empty", "low": "low end of normal range or empty", "high": "high end of normal range or empty" }
+  "results": [
+    {
+      "draw_date": "YYYY-MM-DD or empty string",
+      "markers": [
+        { "name": "short test name", "value": "as printed", "unit": "e.g. mIU/L or empty", "low": "low end of normal range or empty", "high": "high end of normal range or empty" }
+      ]
+    }
   ]
 }`;
 
 const PROMPT = `You are reading a medical laboratory report. Extract EVERY lab test result you can find.
 
-For each result return:
+IMPORTANT: a single document may contain results from MORE THAN ONE collection date (e.g. a trend report, or several panels drawn on different days). Group the results by collection date and return ONE entry in "results" per distinct date. If everything is from a single date, return a single entry.
+
+For each marker return:
 - name: the standard short test name. Prefer these exact names when they appear: TSH, Free T4, Free T3, Reverse T3, TPO antibodies, Thyroglobulin antibodies, Vitamin D, Vitamin B12, Ferritin. Otherwise use the common short name shown on the report.
 - value: the measured result exactly as printed (e.g. "2.1", "<0.1", "Negative").
 - unit: the unit of measure (e.g. "mIU/L", "ng/dL"), or an empty string if none.
 - low / high: the printed reference (normal) range, split into its low and high ends. If the range is one-sided (e.g. "< 34" or "> 30"), fill only the relevant bound and leave the other an empty string. Empty strings if no range is printed.
 
-For draw_date use the specimen COLLECTION date in YYYY-MM-DD format, or an empty string if you cannot find it.
+For each entry's draw_date use the specimen COLLECTION date in YYYY-MM-DD format, or an empty string if you cannot find it.
 
 Only include real test results. Skip patient demographics, headers, footnotes, page numbers, and narrative commentary.
 
@@ -109,14 +115,19 @@ Deno.serve(async (req: Request) => {
   // Defensively strip ```json ... ``` fences if the model added them.
   raw = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
 
-  let parsed: { draw_date: string; markers: unknown[] };
+  let parsed: { results?: unknown[]; draw_date?: string; markers?: unknown[] };
   try {
     parsed = JSON.parse(raw);
   } catch (_) {
     return json({ error: "Could not parse the AI response.", raw: raw.slice(0, 600) }, 502);
   }
-  if (!parsed || !Array.isArray(parsed.markers)) {
-    return json({ error: "No lab values found in that file.", draw_date: "", markers: [] }, 200);
+  // Preferred new shape: { results: [{draw_date, markers}] }.
+  if (parsed && Array.isArray(parsed.results)) {
+    return json({ results: parsed.results }, 200);
   }
-  return json({ draw_date: parsed.draw_date || "", markers: parsed.markers }, 200);
+  // Back-compat: a single {draw_date, markers} -> wrap as one result.
+  if (parsed && Array.isArray(parsed.markers)) {
+    return json({ results: [{ draw_date: parsed.draw_date || "", markers: parsed.markers }] }, 200);
+  }
+  return json({ error: "No lab values found in that file.", results: [] }, 200);
 });

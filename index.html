@@ -2670,6 +2670,11 @@ function renderLabs(root) {
 
     const box = document.createElement('div'); box.className = 'card';
     box.innerHTML = `<div class="card__title">${existing ? 'Edit lab result' : 'Add a lab result'}</div>`;
+    // Top action shortcut so you don't have to scroll past every marker to save.
+    const topActions = document.createElement('div'); topActions.style.cssText = 'display:flex; gap:8px; margin:2px 0 14px;';
+    const topSave = document.createElement('button'); topSave.className = 'btn btn--small'; topSave.textContent = existing ? 'Save changes' : 'Add result';
+    topSave.onclick = () => submitForm();
+    topActions.appendChild(topSave); box.appendChild(topActions);
 
     // date
     const dWrap = document.createElement('div'); dWrap.style.marginBottom = '12px';
@@ -2714,8 +2719,16 @@ function renderLabs(root) {
       autoBtn.disabled = true; const orig = autoBtn.textContent; autoBtn.textContent = 'Reading… (~10–20s)';
       try {
         const parsed = await autoReadLabFile(file);
-        const n = applyParsed(parsed);
-        if (n.filled === 0 && n.added === 0) toast('No lab values found in that file');
+        // The helper may return one date ({draw_date, markers}) or many ({results:[...]}).
+        const results = Array.isArray(parsed.results)
+          ? parsed.results
+          : [{ draw_date: parsed.draw_date, markers: parsed.markers || [] }];
+        if (results.length <= 1) {
+          const n = applyParsed(results[0] || { markers: [] });
+          if (n.filled === 0 && n.added === 0) toast('No lab values found in that file');
+        } else {
+          await applyParsedMulti(results, file); // separate dated entries
+        }
       } catch (e) {
         console.warn(e);
         toast('Auto-read unavailable — the AI helper may not be set up yet. You can still type values in.');
@@ -2773,6 +2786,42 @@ function renderLabs(root) {
       if (filled || added) toast(`Auto-filled ${filled} value${filled === 1 ? '' : 's'}${added ? `, added ${added} new marker${added === 1 ? '' : 's'}` : ''} — review & Save`);
       return { filled, added };
     }
+    // Multiple draw dates in one file -> save each as its own dated entry.
+    async function applyParsedMulti(results, file) {
+      let fileMeta = null;
+      try { if (file) fileMeta = await uploadLabFile(file); } catch (_) { fileMeta = null; }
+      let recs = 0, vals = 0;
+      results.forEach(r => {
+        const date = (r && r.draw_date && /^\d{4}-\d{2}-\d{2}$/.test(r.draw_date)) ? r.draw_date : state.today;
+        const values = {};
+        (r.markers || []).forEach(mk => {
+          if (!mk || !mk.name) return;
+          const num = parseLabNumber(mk.value);
+          if (num === null) return;
+          let marker = matchLabMarker(mk.name);
+          if (!marker) {
+            marker = {
+              id: 'lab_custom_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
+              label: String(mk.name).slice(0, 60), unit: mk.unit || '',
+              low: parseRangeBound(mk.low), high: parseRangeBound(mk.high), group: 'Other',
+            };
+            labMarkers().push(marker);
+          }
+          values[marker.id] = num; vals++;
+        });
+        if (Object.keys(values).length === 0) return;
+        labRecords().push({
+          id: 'lab_rec_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
+          date, values, files: fileMeta ? [fileMeta] : [], notes: '',
+        });
+        recs++;
+      });
+      queuePush();
+      formHost.innerHTML = '';
+      refreshList();
+      toast(`Added ${recs} dated entr${recs === 1 ? 'y' : 'ies'} (${vals} values) — review them in your lab history`);
+      return { recs, vals };
+    }
 
     // notes
     const nWrap = document.createElement('div'); nWrap.style.margin = '14px 0 0';
@@ -2786,7 +2835,8 @@ function renderLabs(root) {
     const save = document.createElement('button'); save.className = 'btn'; save.textContent = existing ? 'Save changes' : 'Add result';
     const cancel = document.createElement('button'); cancel.className = 'btn btn--ghost'; cancel.textContent = 'Cancel';
     cancel.onclick = () => { formHost.innerHTML = ''; };
-    save.onclick = async () => {
+    save.onclick = submitForm;
+    async function submitForm() {
       // collect values
       rec.values = {};
       Object.keys(valInputs).forEach(id => { const v = valInputs[id].value.trim(); if (v !== '') rec.values[id] = Number(v); });
@@ -2795,7 +2845,7 @@ function renderLabs(root) {
       if (Object.keys(rec.values).length === 0 && rec.files.length === 0 && pendingFiles.length === 0) {
         toast('Add at least one value or file'); return;
       }
-      save.disabled = true; cancel.disabled = true;
+      save.disabled = true; cancel.disabled = true; topSave.disabled = true;
       // upload pending files
       if (pendingFiles.length) {
         save.textContent = 'Uploading…';
@@ -2803,7 +2853,7 @@ function renderLabs(root) {
           try { const meta = await uploadLabFile(file); rec.files.push(meta); }
           catch (e) {
             console.warn('upload failed', e);
-            save.disabled = false; cancel.disabled = false; save.textContent = existing ? 'Save changes' : 'Add result';
+            save.disabled = false; cancel.disabled = false; topSave.disabled = false; save.textContent = existing ? 'Save changes' : 'Add result';
             toast(e.message === 'no-storage' ? 'File storage not set up yet — values saved, file skipped' : 'File upload failed — try again');
             if (e.message !== 'no-storage') return;
           }
@@ -2816,7 +2866,7 @@ function renderLabs(root) {
       formHost.innerHTML = '';
       refreshList();
       toast(existing ? 'Lab result updated' : 'Lab result added');
-    };
+    }
     btnRow.appendChild(save); btnRow.appendChild(cancel);
     box.appendChild(btnRow);
     formHost.appendChild(box);
@@ -3156,6 +3206,18 @@ function renderQuickView(main) {
   const canvas = document.createElement('canvas');
   chartWrap.appendChild(canvas);
   chartCard.appendChild(chartWrap);
+  // Y-axis range control (blank = auto-fit).
+  const yCtrl = document.createElement('div'); yCtrl.style.cssText = 'display:flex; align-items:center; gap:6px; margin-top:10px; font-size:12px; color:var(--text-dim); flex-wrap:wrap;';
+  const yLbl = document.createElement('span'); yLbl.textContent = 'Y-axis:';
+  const yMinI = document.createElement('input'); yMinI.type = 'number'; yMinI.step = 'any'; yMinI.className = 'number-input'; yMinI.style.width = '72px'; yMinI.placeholder = 'min'; yMinI.value = state._scratch.yMin || '';
+  const yMaxI = document.createElement('input'); yMaxI.type = 'number'; yMaxI.step = 'any'; yMaxI.className = 'number-input'; yMaxI.style.width = '72px'; yMaxI.placeholder = 'max'; yMaxI.value = state._scratch.yMax || '';
+  const yTo = document.createElement('span'); yTo.textContent = 'to';
+  const yReset = document.createElement('button'); yReset.className = 'btn btn--small btn--ghost'; yReset.textContent = 'Auto';
+  const applyY = () => { state._scratch.yMin = yMinI.value; state._scratch.yMax = yMaxI.value; renderQuickView(main); };
+  yMinI.onchange = applyY; yMaxI.onchange = applyY;
+  yReset.onclick = () => { state._scratch.yMin = ''; state._scratch.yMax = ''; renderQuickView(main); };
+  yCtrl.appendChild(yLbl); yCtrl.appendChild(yMinI); yCtrl.appendChild(yTo); yCtrl.appendChild(yMaxI); yCtrl.appendChild(yReset);
+  chartCard.appendChild(yCtrl);
   main.appendChild(chartCard);
 
   // Stats
@@ -3206,7 +3268,7 @@ function renderQuickView(main) {
   actions.appendChild(dl); actions.appendChild(exp); actions.appendChild(cb);
   main.appendChild(actions);
 
-  setTimeout(() => drawChartJS(canvas, [state._scratch.metric], series.length, [series], 'line'), 50);
+  setTimeout(() => drawChartJS(canvas, [state._scratch.metric], series.length, [series], 'line', { min: state._scratch.yMin, max: state._scratch.yMax }), 50);
 }
 
 // ============= CHART RENDERING =============
@@ -3216,7 +3278,7 @@ function destroyCharts() {
   _activeCharts = [];
 }
 
-function drawChartJS(canvas, metricIds, days, seriesList, chartType) {
+function drawChartJS(canvas, metricIds, days, seriesList, chartType, yRange) {
   destroyCharts();
   const fullDates = seriesList[0].map(p => p.date);          // YYYY-MM-DD
   const labels = fullDates.map(d => d.slice(5));             // MM-DD
@@ -3248,6 +3310,10 @@ function drawChartJS(canvas, metricIds, days, seriesList, chartType) {
     }
   });
   const scales = { y: { beginAtZero: false, grid: { color: '#e4dfd5' } } };
+  if (yRange) {
+    if (yRange.min !== '' && yRange.min != null && !isNaN(Number(yRange.min))) scales.y.min = Number(yRange.min);
+    if (yRange.max !== '' && yRange.max != null && !isNaN(Number(yRange.max))) scales.y.max = Number(yRange.max);
+  }
   if (metricIds.length > 1) scales.y1 = { position: 'right', beginAtZero: false, grid: { drawOnChartArea: false } };
 
   // Overlay: healthy-zone band for the primary metric + medication-change flags.
